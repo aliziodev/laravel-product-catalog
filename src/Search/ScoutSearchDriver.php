@@ -9,6 +9,7 @@ use Aliziodev\ProductCatalog\Models\Product;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use RuntimeException;
 
 /**
  * Search driver that delegates text search to Laravel Scout (Algolia, Meilisearch,
@@ -27,8 +28,8 @@ class ScoutSearchDriver implements SearchDriverInterface
 {
     public function __construct(private readonly DatabaseSearchDriver $filterDriver)
     {
-        if (! class_exists(\Laravel\Scout\Builder::class)) {
-            throw new \RuntimeException(
+        if (! $this->scoutIsInstalled()) {
+            throw new RuntimeException(
                 'ScoutSearchDriver requires laravel/scout. Install it with: composer require laravel/scout'
             );
         }
@@ -46,13 +47,42 @@ class ScoutSearchDriver implements SearchDriverInterface
         return $this->buildScoutQuery($query, $filters)->get();
     }
 
-    private function buildScoutQuery(string $query, array $filters): \Laravel\Scout\Builder
+    protected function scoutIsInstalled(): bool
+    {
+        return class_exists(\Laravel\Scout\Builder::class);
+    }
+
+    protected function searchableModelClass(): string
+    {
+        $modelClass = config('product-catalog.search.model', Product::class);
+
+        if (! is_string($modelClass) || $modelClass === '' || ! class_exists($modelClass)) {
+            throw new RuntimeException('ScoutSearchDriver search model is not configured correctly.');
+        }
+
+        if (! method_exists($modelClass, 'search')) {
+            throw new RuntimeException(
+                'ScoutSearchDriver requires the configured search model to use Laravel\Scout\Searchable.'
+            );
+        }
+
+        return $modelClass;
+    }
+
+    protected function makeScoutBuilder(string $query): object
+    {
+        $modelClass = $this->searchableModelClass();
+
+        return $modelClass::search($query);
+    }
+
+    private function buildScoutQuery(string $query, array $filters): object
     {
         $sortBy = $filters['sort_by'] ?? null;
         $dir = strtolower($filters['sort_direction'] ?? 'desc') === 'asc' ? 'asc' : 'desc';
         $filterDriver = $this->filterDriver;
 
-        return Product::search($query)->query(
+        return $this->makeScoutBuilder($query)->query(
             function (Builder $eloquentBuilder) use ($filters, $filterDriver, $sortBy, $dir) {
                 $filterDriver->applyFilters($eloquentBuilder, $filters);
 

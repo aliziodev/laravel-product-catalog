@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+use Aliziodev\ProductCatalog\Models\Product;
 
 return [
 
@@ -61,6 +62,15 @@ return [
     */
     'search' => [
         'driver' => env('PRODUCT_CATALOG_SEARCH_DRIVER', 'database'),
+
+        /*
+         | model — The Scout-searchable model class used by ScoutSearchDriver.
+         |
+         | Set this to your application Product model after you extend the package
+         | base model and add Laravel\Scout\Searchable plus the package
+         | Concerns\Searchable trait.
+         */
+        'model' => Product::class,
 
         /*
          | fulltext — Enable MySQL/MariaDB FULLTEXT search for the database driver.

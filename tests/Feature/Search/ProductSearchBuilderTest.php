@@ -295,6 +295,17 @@ it('fromRequest() maps sort_by and sort_direction', function () {
     expect($result->items()[0]->name)->toBe('Alpha Product');
 });
 
+it('fromRequest() maps status and overrides the default published filter', function () {
+    Product::factory()->create(['name' => 'Draft Search Product', 'status' => ProductStatus::Draft]);
+    Product::factory()->create(['name' => 'Published Search Product', 'status' => ProductStatus::Published]);
+
+    $request = Request::create('/products', 'GET', ['status' => 'draft', 'q' => 'search']);
+    $result = ProductSearchBuilder::fromRequest($request)->paginate(15);
+
+    expect($result->total())->toBe(1)
+        ->and($result->items()[0]->name)->toBe('Draft Search Product');
+});
+
 // ── withRelations() ───────────────────────────────────────────────────────────
 
 it('withRelations() overrides the default eager-loaded relations', function () {
