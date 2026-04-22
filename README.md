@@ -1,21 +1,14 @@
 # Laravel Product Catalog
 
 <p align="center">
-  <a href="https://packagist.org/packages/aliziodev/laravel-product-catalog">
-    <img src="https://img.shields.io/packagist/v/aliziodev/laravel-product-catalog.svg?style=flat-square" alt="Packagist Version">
-  </a>
-  <a href="https://packagist.org/packages/aliziodev/laravel-product-catalog">
-    <img src="https://img.shields.io/packagist/dt/aliziodev/laravel-product-catalog.svg?style=flat-square" alt="Total Downloads">
-  </a>
-  <a href="https://github.com/aliziodev/laravel-product-catalog/actions/workflows/tests.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/aliziodev/laravel-product-catalog/tests.yml?branch=main&style=flat-square&label=CI" alt="CI Status">
-  </a>
-  <a href="https://codecov.io/gh/aliziodev/laravel-product-catalog">
-    <img src="https://img.shields.io/codecov/c/github/aliziodev/laravel-product-catalog?style=flat-square" alt="Codecov">
-  </a>
-  <a href="https://deepwiki.com/aliziodev/laravel-product-catalog">
-    <img src="https://deepwiki.com/badge.svg" alt="DeepWiki">
-  </a>
+  <a href="https://codecov.io/gh/aliziodev/laravel-product-catalog"><img src="https://codecov.io/gh/aliziodev/laravel-product-catalog/branch/master/graph/badge.svg" alt="codecov"></a>
+  <a href="https://github.com/aliziodev/laravel-product-catalog/actions"><img src="https://github.com/aliziodev/laravel-product-catalog/workflows/Tests/badge.svg" alt="Tests"></a>
+  <a href="https://packagist.org/packages/aliziodev/laravel-product-catalog"><img src="https://img.shields.io/packagist/v/aliziodev/laravel-product-catalog.svg" alt="Latest Version on Packagist"></a>
+</br>
+  <a href="https://packagist.org/packages/aliziodev/laravel-product-catalog"><img src="https://img.shields.io/packagist/dt/aliziodev/laravel-product-catalog.svg" alt="Total Downloads"></a>
+  <a href="https://packagist.org/packages/aliziodev/laravel-product-catalog"><img src="https://img.shields.io/packagist/php-v/aliziodev/laravel-product-catalog.svg" alt="PHP Version"></a>
+  <a href="https://laravel.com/"><img src="https://img.shields.io/badge/Laravel-12.0%2B-orange.svg" alt="Laravel Version"></a>
+  <a href="https://deepwiki.com/aliziodev/laravel-product-catalog"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
 </p>
 
 A professional, variant-centric product catalog package for Laravel 12+. Designed to be a stable foundation for any application that needs structured product data — from a simple internal catalog to a full ecommerce storefront — without locking you into a specific architecture.
