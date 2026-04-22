@@ -1,5 +1,15 @@
 # Changelog
 
+All notable changes to `aliziodev/laravel-product-catalog` will be documented in this file.
+
+## 1.0.0 (2026-04-22)
+
+### Features
+
+* initial release of laravel-product-catalog ([87b58c7](https://github.com/aliziodev/laravel-product-catalog/commit/87b58c74ca1a32671e05c364219eedbc288d10e3))
+
+# Changelog
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
