@@ -2,6 +2,12 @@
 
 All notable changes to `aliziodev/laravel-product-catalog` will be documented in this file.
 
+## [1.3.0](https://github.com/aliziodev/laravel-product-catalog/compare/v1.2.1...v1.3.0) (2026-04-22)
+
+### Features
+
+* **search:** add configurable scout model and document setup ([3f72fbf](https://github.com/aliziodev/laravel-product-catalog/commit/3f72fbf2f546f99b09a1e27daead15682677bbaa))
+
 ## [1.2.1](https://github.com/aliziodev/laravel-product-catalog/compare/v1.2.0...v1.2.1) (2026-04-22)
 
 ### Bug Fixes
