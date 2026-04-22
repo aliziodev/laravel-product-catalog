@@ -2,6 +2,12 @@
 
 All notable changes to `aliziodev/laravel-product-catalog` will be documented in this file.
 
+## [1.1.0](https://github.com/aliziodev/laravel-product-catalog/compare/v1.0.1...v1.1.0) (2026-04-22)
+
+### Features
+
+* add comprehensive skill guide and API reference for laravel-product-catalog ([a19934e](https://github.com/aliziodev/laravel-product-catalog/commit/a19934ed2de10994dfcdb3d7a28d03b8b66281db))
+
 ## 1.0.0 (2026-04-22)
 
 ### Features
