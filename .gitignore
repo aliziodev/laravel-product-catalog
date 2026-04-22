@@ -14,13 +14,6 @@ composer.lock
 *.swp
 *.swo
 
-# Agents
-.claude/*
-!.claude/skills/
-!.claude/skills/**
-*.skill
-*-eval-review.html
-
 # OS
 .DS_Store
 Thumbs.db
@@ -33,3 +26,5 @@ desktop.ini
 /node_modules/
 package-lock.json
 
+
+.claude/skills/
