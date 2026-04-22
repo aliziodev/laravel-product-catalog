@@ -1,0 +1,68 @@
+{
+    "name": "aliziodev/laravel-product-catalog",
+    "description": "A professional, variant-centric product catalog package for Laravel. Covers product catalog, online store, ecommerce, internal catalog, digital & physical products, and custom inventory integration.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": [
+        "laravel",
+        "product",
+        "catalog",
+        "ecommerce",
+        "inventory",
+        "variant",
+        "sku",
+        "store"
+    ],
+    "homepage": "https://github.com/aliziodev",
+    "authors": [
+        {
+            "name": "Alizio",
+            "email": "aliziodev@gmail.com"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/aliziodev/laravel-product-catalog/issues",
+        "source": "https://github.com/aliziodev/laravel-product-catalog"
+    },
+    "require": {
+        "php": "^8.3",
+        "illuminate/support": "^12.0|^13.0",
+        "illuminate/database": "^12.0|^13.0",
+        "illuminate/events": "^12.0|^13.0"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^10.0|^11.0",
+        "pestphp/pest": "^4.0",
+        "pestphp/pest-plugin-laravel": "^4.0",
+        "laravel/pint": "^1.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Aliziodev\\ProductCatalog\\": "src/",
+            "Aliziodev\\ProductCatalog\\Database\\Factories\\": "database/factories/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Aliziodev\\ProductCatalog\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Aliziodev\\ProductCatalog\\ProductCatalogServiceProvider"
+            ],
+            "aliases": {
+                "ProductCatalog": "Aliziodev\\ProductCatalog\\Facades\\ProductCatalog"
+            }
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

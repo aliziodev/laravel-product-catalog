@@ -1,0 +1,31 @@
+# Dependencies
+/vendor/
+composer.lock
+
+# Testing
+/.phpunit.cache
+/coverage/
+*.coverage
+.php-cs-fixer.cache
+
+# IDE
+/.idea/
+/.vscode/
+*.swp
+*.swo
+
+# Agents
+/.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Testbench
+/orchestra/
+
+# Node (semantic-release)
+/node_modules/
+package-lock.json
+
