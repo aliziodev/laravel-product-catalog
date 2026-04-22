@@ -25,8 +25,16 @@ class SeedDemoCommand extends Command
 
     protected $description = 'Seed demo products, brands, categories, and tags';
 
+    /** Tracks how many records were created vs already existed this run. */
+    private int $created = 0;
+
+    private int $skipped = 0;
+
     public function handle(): int
     {
+        $this->created = 0;
+        $this->skipped = 0;
+
         $env = config('app.env', 'production');
         if (! in_array($env, ['local', 'testing']) && ! $this->option('force')) {
             $this->components->error(
@@ -50,8 +58,16 @@ class SeedDemoCommand extends Command
         });
 
         $this->newLine();
-        $this->components->info('Demo data seeded successfully.');
-        $this->line('  4 products · 2 brands · 5 categories · 4 tags');
+
+        if ($this->skipped > 0 && $this->created === 0) {
+            $this->line('  <fg=yellow>WARN</> Demo data already exists — nothing new was created.');
+        } elseif ($this->skipped > 0) {
+            $this->components->info("Done. {$this->created} created, {$this->skipped} already existed.");
+        } else {
+            $this->components->info('Demo data seeded successfully.');
+            $this->line('  4 products · 2 brands · 5 categories · 4 tags');
+        }
+
         $this->newLine();
 
         return self::SUCCESS;
@@ -59,27 +75,25 @@ class SeedDemoCommand extends Command
 
     private function seedCategories(): array
     {
-        $electronics = Category::create(['name' => 'Electronics', 'slug' => 'electronics', 'position' => 1]);
-        $smartphones = Category::create(['parent_id' => $electronics->id, 'name' => 'Smartphones', 'slug' => 'smartphones', 'position' => 1]);
-        $laptops = Category::create(['parent_id' => $electronics->id, 'name' => 'Laptops', 'slug' => 'laptops', 'position' => 2]);
-        $apparel = Category::create(['name' => 'Apparel', 'slug' => 'apparel', 'position' => 2]);
-        $tshirts = Category::create(['parent_id' => $apparel->id, 'name' => 'T-Shirts', 'slug' => 't-shirts', 'position' => 1]);
+        $electronics = $this->firstOrCreate(Category::class, ['slug' => 'electronics'], ['name' => 'Electronics', 'position' => 1]);
+        $smartphones = $this->firstOrCreate(Category::class, ['slug' => 'smartphones'], ['parent_id' => $electronics->id, 'name' => 'Smartphones', 'position' => 1]);
+        $laptops = $this->firstOrCreate(Category::class, ['slug' => 'laptops'], ['parent_id' => $electronics->id, 'name' => 'Laptops', 'position' => 2]);
+        $apparel = $this->firstOrCreate(Category::class, ['slug' => 'apparel'], ['name' => 'Apparel', 'position' => 2]);
+        $tshirts = $this->firstOrCreate(Category::class, ['slug' => 't-shirts'], ['parent_id' => $apparel->id, 'name' => 'T-Shirts', 'position' => 1]);
 
         return [$electronics, $smartphones, $laptops, $apparel, $tshirts];
     }
 
     private function seedBrands(): array
     {
-        $techco = Brand::create([
+        $techco = $this->firstOrCreate(Brand::class, ['slug' => 'techco'], [
             'name' => 'TechCo',
-            'slug' => 'techco',
             'description' => 'Premium consumer electronics and accessories.',
             'website_url' => 'https://techco.example.com',
         ]);
 
-        $stylehouse = Brand::create([
+        $stylehouse = $this->firstOrCreate(Brand::class, ['slug' => 'stylehouse'], [
             'name' => 'StyleHouse',
-            'slug' => 'stylehouse',
             'description' => 'Modern everyday apparel.',
             'website_url' => 'https://stylehouse.example.com',
         ]);
@@ -89,21 +103,20 @@ class SeedDemoCommand extends Command
 
     private function seedTags(): array
     {
-        $newArrival = Tag::create(['name' => 'New Arrival', 'slug' => 'new-arrival']);
-        $bestseller = Tag::create(['name' => 'Bestseller', 'slug' => 'bestseller']);
-        $featured = Tag::create(['name' => 'Featured', 'slug' => 'featured']);
-        $sale = Tag::create(['name' => 'Sale', 'slug' => 'sale']);
+        $newArrival = $this->firstOrCreate(Tag::class, ['slug' => 'new-arrival'], ['name' => 'New Arrival']);
+        $bestseller = $this->firstOrCreate(Tag::class, ['slug' => 'bestseller'], ['name' => 'Bestseller']);
+        $featured = $this->firstOrCreate(Tag::class, ['slug' => 'featured'], ['name' => 'Featured']);
+        $sale = $this->firstOrCreate(Tag::class, ['slug' => 'sale'], ['name' => 'Sale']);
 
         return [$newArrival, $bestseller, $featured, $sale];
     }
 
     private function seedSmartphone(Brand $brand, Category $electronics, Category $smartphones, Tag $newArrival, Tag $bestseller): void
     {
-        $product = Product::create([
+        $product = $this->firstOrCreate(Product::class, ['slug' => 'smartphone-pro-x'], [
             'brand_id' => $brand->id,
             'primary_category_id' => $smartphones->id,
             'name' => 'Smartphone Pro X',
-            'slug' => 'smartphone-pro-x',
             'description' => 'The latest flagship smartphone with a 6.7" OLED display, 5G connectivity, and a 50MP triple camera system.',
             'short_description' => 'Flagship 5G smartphone with 6.7" OLED display.',
             'type' => ProductType::Variable,
@@ -113,6 +126,10 @@ class SeedDemoCommand extends Command
             'meta_description' => 'Buy the TechCo Smartphone Pro X — available in Midnight and Silver.',
             'published_at' => now()->subDays(10),
         ]);
+
+        if (! $product->wasRecentlyCreated) {
+            return;
+        }
 
         $product->categories()->attach([$electronics->id, $smartphones->id]);
         $product->tags()->attach([$newArrival->id, $bestseller->id]);
@@ -148,11 +165,10 @@ class SeedDemoCommand extends Command
 
     private function seedLaptop(Brand $brand, Category $electronics, Category $laptops, Tag $featured): void
     {
-        $product = Product::create([
+        $product = $this->firstOrCreate(Product::class, ['slug' => 'laptop-air-15'], [
             'brand_id' => $brand->id,
             'primary_category_id' => $laptops->id,
             'name' => 'Laptop Air 15',
-            'slug' => 'laptop-air-15',
             'description' => 'Ultralight 15" laptop with all-day battery life and a stunning Retina display.',
             'short_description' => 'Ultralight 15" laptop, 18-hour battery.',
             'type' => ProductType::Simple,
@@ -161,6 +177,10 @@ class SeedDemoCommand extends Command
             'meta_title' => 'Laptop Air 15 | TechCo',
             'published_at' => now()->subDays(30),
         ]);
+
+        if (! $product->wasRecentlyCreated) {
+            return;
+        }
 
         $product->categories()->attach([$electronics->id, $laptops->id]);
         $product->tags()->attach([$featured->id]);
@@ -179,11 +199,10 @@ class SeedDemoCommand extends Command
 
     private function seedTShirt(Brand $brand, Category $apparel, Category $tshirts, Tag $sale): void
     {
-        $product = Product::create([
+        $product = $this->firstOrCreate(Product::class, ['slug' => 'classic-crew-tee'], [
             'brand_id' => $brand->id,
             'primary_category_id' => $tshirts->id,
             'name' => 'Classic Crew Tee',
-            'slug' => 'classic-crew-tee',
             'description' => '100% organic cotton crew-neck t-shirt, pre-washed for softness.',
             'short_description' => 'Organic cotton crew tee in 3 colors and 3 sizes.',
             'type' => ProductType::Variable,
@@ -191,6 +210,10 @@ class SeedDemoCommand extends Command
             'featured_image_path' => 'https://placehold.co/800x600?text=Classic+Crew+Tee',
             'published_at' => now()->subDays(5),
         ]);
+
+        if (! $product->wasRecentlyCreated) {
+            return;
+        }
 
         $product->categories()->attach([$apparel->id, $tshirts->id]);
         $product->tags()->attach([$sale->id]);
@@ -228,17 +251,39 @@ class SeedDemoCommand extends Command
         }
     }
 
+    /**
+     * Wrapper around Eloquent firstOrCreate that increments the created/skipped counters.
+     *
+     * @template TModel of \Illuminate\Database\Eloquent\Model
+     *
+     * @param  class-string<TModel>  $modelClass
+     * @param  array<string, mixed>  $search
+     * @param  array<string, mixed>  $values
+     * @return TModel
+     */
+    private function firstOrCreate(string $modelClass, array $search, array $values = []): mixed
+    {
+        $model = $modelClass::firstOrCreate($search, $values);
+
+        $model->wasRecentlyCreated ? $this->created++ : $this->skipped++;
+
+        return $model;
+    }
+
     private function seedDigitalProduct(Tag $featured): void
     {
-        $product = Product::create([
+        $product = $this->firstOrCreate(Product::class, ['slug' => 'premium-license-key'], [
             'name' => 'Premium License Key',
-            'slug' => 'premium-license-key',
             'description' => 'Lifetime license key for our premium desktop application.',
             'short_description' => 'One-time purchase, lifetime access.',
             'type' => ProductType::Simple,
             'status' => ProductStatus::Published,
             'published_at' => now()->subDays(60),
         ]);
+
+        if (! $product->wasRecentlyCreated) {
+            return;
+        }
 
         $product->tags()->attach([$featured->id]);
 
