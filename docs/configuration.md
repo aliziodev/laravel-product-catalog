@@ -10,6 +10,39 @@ php artisan vendor:publish --tag=product-catalog-config
 
 ---
 
+## `model`
+
+```php
+'model' => \Aliziodev\ProductCatalog\Models\Product::class,
+```
+
+The Eloquent model class used throughout the package. All internal subsystems — the `DatabaseSearchDriver`, `ScoutSearchDriver`, and `ProductController` — resolve their model through this single key.
+
+Override when you extend the base `Product` model in your application:
+
+```php
+// config/product-catalog.php
+'model' => \App\Models\Product::class,
+```
+
+Your model must extend `Aliziodev\ProductCatalog\Models\Product`. If you are using Scout, add `Laravel\Scout\Searchable` and `Aliziodev\ProductCatalog\Concerns\Searchable` to this application model (not the package base model):
+
+```php
+// app/Models/Product.php
+use Aliziodev\ProductCatalog\Models\Product as BaseProduct;
+use Aliziodev\ProductCatalog\Concerns\Searchable;
+use Laravel\Scout\Searchable as ScoutSearchable;
+
+class Product extends BaseProduct
+{
+    use ScoutSearchable, Searchable;
+}
+```
+
+> **Validated on boot.** `ProductCatalogServiceProvider` checks this key on every request and throws an `InvalidArgumentException` (with a clear message) if the value is empty, the class doesn't exist, or it doesn't extend the base `Product`.
+
+---
+
 ## `table_prefix`
 
 ```php
@@ -90,6 +123,8 @@ $product->update(['slug' => 'my-custom-slug-' . $product->route_key]);
 ```
 
 > **Note:** Even with `auto_generate = false`, you must set `slug` and `route_key` yourself on first create, or slug generation is skipped entirely.
+
+> **Manual slug uniqueness.** When you explicitly set a `slug` on `create` or `update`, the package validates it for uniqueness **before** hitting the database and throws `ProductCatalogException::duplicateSlug()` with a helpful message instead of a raw `SQLSTATE[23000]`. Auto-generated slugs are always unique via the random `route_key` suffix and never trigger this check.
 
 ### `separator`
 

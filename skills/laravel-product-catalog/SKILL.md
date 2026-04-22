@@ -11,7 +11,7 @@ description: >
   laravel-product-catalog package. Also trigger when user asks about: ProductCatalog
   facade, InventoryPolicy, inStock scope, buildVariantSku, priceRange, displayName,
   InventoryProviderInterface, ProductSearchBuilder, ScoutSearchDriver,
-  `product-catalog.search.model`, or catalog:install artisan command.
+  `product-catalog.model`, or catalog:install artisan command.
 ---
 
 # laravel-product-catalog — Skill Guide
@@ -38,6 +38,7 @@ php artisan vendor:publish --tag=product-catalog-config  # optional
 
 **Key config** (`config/product-catalog.php`):
 ```php
+'model'       => \App\Models\Product::class, // override when extending the base Product model
 'table_prefix' => env('PRODUCT_CATALOG_TABLE_PREFIX', 'catalog_'),  // set BEFORE migrate
 'inventory' => [
     'driver' => env('PRODUCT_CATALOG_INVENTORY_DRIVER', 'database'), // 'database' | 'null' | custom
@@ -48,7 +49,6 @@ php artisan vendor:publish --tag=product-catalog-config  # optional
 ],
 'search' => [
     'driver' => env('PRODUCT_CATALOG_SEARCH_DRIVER', 'database'), // 'database' | 'scout' | custom
-    'model' => \App\Models\Product::class, // required when using ScoutSearchDriver
 ],
 'routes' => [
     'enabled'    => env('PRODUCT_CATALOG_ROUTES_ENABLED', false),
@@ -60,9 +60,10 @@ php artisan vendor:publish --tag=product-catalog-config  # optional
 > ⚠️ **Pitfall:** Change `table_prefix` **before** running `migrate`. Changing it afterward orphans the old tables — manual rename required.
 >
 > ⚠️ **Scout pitfall:** `ScoutSearchDriver` does **not** use the package base `Product`
-> model directly. When enabling Scout, point `product-catalog.search.model` to your
+> model directly. When enabling Scout, set the top-level `product-catalog.model` to your
 > application Product model that extends the package base model and uses both
-> `Laravel\Scout\Searchable` and the package `Concerns\Searchable` trait.
+> `Laravel\Scout\Searchable` and the package `Concerns\Searchable` trait. This same key
+> is also used by the database search driver and the API controller.
 
 ---
 
@@ -307,9 +308,9 @@ ProductSearchBuilder::query('kemeja')
 
 ```php
 // config/product-catalog.php
+'model' => \App\Models\Product::class,  // top-level — used by all subsystems
 'search' => [
     'driver' => env('PRODUCT_CATALOG_SEARCH_DRIVER', 'database'),
-    'model' => \App\Models\Product::class,
 ],
 ```
 
@@ -446,7 +447,9 @@ See `references/inventory.md` for full examples (ERP API, fallback strategy).
 4. **Never update `route_key`** — it is the permanent slug identifier. Changing it breaks all existing links.
 5. **Soft-deleted Brand/Category** — `$product->brand` returns `null`. Handle gracefully: `$product->brand?->name ?? 'No Brand'`.
 6. **Soft-deleted Tag pivot** — the pivot row in `catalog_product_tags` persists after soft delete. Clean up in the `Tag::forceDeleted` event if needed.
-7. **`Product::search()` is not the Scout entrypoint by itself** — for Scout integration, use your app Product model with `ScoutSearchable` and set `product-catalog.search.model` correctly.
+7. **`Product::search()` is not the Scout entrypoint by itself** — for Scout integration, use your app Product model with `ScoutSearchable` and set the top-level `product-catalog.model` correctly.
+8. **Manual slug override can throw `ProductCatalogException`** — setting `slug` explicitly on `create` or `update` will throw `ProductCatalogException::duplicateSlug()` if the slug is already taken. Auto-generated slugs (no `slug` field set) are always unique and never throw.
+9. **`catalog:seed-demo` is idempotent** — safe to run multiple times; uses `firstOrCreate` and skips existing records.
 
 ---
 

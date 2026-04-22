@@ -107,13 +107,13 @@ ProductCatalog::extendSearch($name, $resolver)
 
 ```php
 // config/product-catalog.php
+'model' => \App\Models\Product::class,  // top-level — read by search drivers, API controller, and all subsystems
 'search' => [
     'driver' => env('PRODUCT_CATALOG_SEARCH_DRIVER', 'database'),
-    'model' => \App\Models\Product::class,
 ],
 ```
 
-- `search.model` must point to your application Product model
+- `model` (top-level) must point to your application Product model
 - that model must extend the package base Product model
 - that model must use both `Laravel\Scout\Searchable` and `Aliziodev\ProductCatalog\Concerns\Searchable`
 
@@ -181,9 +181,21 @@ Namespace: `Aliziodev\ProductCatalog\Events\`
 use Aliziodev\ProductCatalog\Exceptions\InventoryException;
 use Aliziodev\ProductCatalog\Exceptions\ProductCatalogException;
 
-// Factory method for insufficient stock
+// Insufficient stock
 InventoryException::insufficientStock($variant, $requestedQty);
+
+// Duplicate manual slug — thrown automatically by HasSlug when a manually-set slug is already taken
+ProductCatalogException::duplicateSlug($slug, $modelBasename);
+
+// Other factory methods
+ProductCatalogException::driverNotFound($driver);
+ProductCatalogException::invalidProductType($type);
+ProductCatalogException::cannotPublish($reason);
 ```
+
+> **Note on slug uniqueness:** Auto-generated slugs (no `slug` field set on `create`) are always
+> unique via a random `route_key` suffix and never throw. Only manually-set slugs are validated
+> pre-insert/pre-update. Catch `ProductCatalogException` to surface a friendly error in your UI.
 
 ---
 
