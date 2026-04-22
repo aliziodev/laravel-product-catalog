@@ -149,20 +149,15 @@ In your `.env`:
 PRODUCT_CATALOG_SEARCH_DRIVER=scout
 ```
 
-In `config/product-catalog.php`, point the Scout driver at your application's
-extended Product model:
+In `config/product-catalog.php`, set the top-level `model` key to your application's extended Product model:
 
 ```php
 use App\Models\Product;
 
-'search' => [
-    'driver' => env('PRODUCT_CATALOG_SEARCH_DRIVER', 'database'),
-    'model' => Product::class,
-],
+'model' => Product::class,
 ```
 
-`ScoutSearchDriver` resolves this configured model class and expects it to use
-both `Laravel\Scout\Searchable` and the package's `Concerns\Searchable` trait.
+This single key is read by **all** package subsystems — the database search driver, the Scout search driver, and the API controller — so you only configure your extended model once. `ScoutSearchDriver` additionally expects the configured model to use both `Laravel\Scout\Searchable` and the package's `Concerns\Searchable` trait.
 
 Or per-request using `usingDriver()`:
 
