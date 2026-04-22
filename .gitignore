@@ -28,3 +28,6 @@ package-lock.json
 
 
 .claude/skills/
+*.skill
+*-eval-review.html
+settings.local.json
