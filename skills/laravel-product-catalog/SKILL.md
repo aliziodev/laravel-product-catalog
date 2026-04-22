@@ -6,10 +6,12 @@ description: >
   Laravel product catalog with pluggable inventory management. Use this skill whenever
   working with this package: installation & setup, creating Products and ProductVariants,
   inventory management (adjust, reserve, release), taxonomy (Brand, Category, Tag),
-  slug routing, custom inventory drivers, API Resources, or any question about the
+  slug routing, search setup (database driver, ScoutSearchDriver, ProductSearchBuilder),
+  custom inventory drivers, API Resources, or any question about the
   laravel-product-catalog package. Also trigger when user asks about: ProductCatalog
   facade, InventoryPolicy, inStock scope, buildVariantSku, priceRange, displayName,
-  InventoryProviderInterface, or catalog:install artisan command.
+  InventoryProviderInterface, ProductSearchBuilder, ScoutSearchDriver,
+  `product-catalog.search.model`, or catalog:install artisan command.
 ---
 
 # laravel-product-catalog — Skill Guide
@@ -44,6 +46,10 @@ php artisan vendor:publish --tag=product-catalog-config  # optional
     'auto_generate'    => true,
     'route_key_length' => 8,   // random suffix length (4–32)
 ],
+'search' => [
+    'driver' => env('PRODUCT_CATALOG_SEARCH_DRIVER', 'database'), // 'database' | 'scout' | custom
+    'model' => \App\Models\Product::class, // required when using ScoutSearchDriver
+],
 'routes' => [
     'enabled'    => env('PRODUCT_CATALOG_ROUTES_ENABLED', false),
     'prefix'     => 'catalog',
@@ -52,6 +58,11 @@ php artisan vendor:publish --tag=product-catalog-config  # optional
 ```
 
 > ⚠️ **Pitfall:** Change `table_prefix` **before** running `migrate`. Changing it afterward orphans the old tables — manual rename required.
+>
+> ⚠️ **Scout pitfall:** `ScoutSearchDriver` does **not** use the package base `Product`
+> model directly. When enabling Scout, point `product-catalog.search.model` to your
+> application Product model that extends the package base model and uses both
+> `Laravel\Scout\Searchable` and the package `Concerns\Searchable` trait.
 
 ---
 
@@ -259,7 +270,7 @@ Product::draft()->get();
 // Stock
 Product::inStock()->get();          // has at least one purchasable active variant
 
-// Full-text search (name, code, description, SKU)
+// Local Eloquent scope search (name, code, description, SKU)
 Product::search('RS-AIR')->get();
 
 // Filters
@@ -274,6 +285,58 @@ $product->maxPrice();
 // Low stock alert
 InventoryItem::lowStock()->with('variant.product')->get();
 ```
+
+### ProductSearchBuilder
+
+```php
+use Aliziodev\ProductCatalog\Search\ProductSearchBuilder;
+
+ProductSearchBuilder::query('kemeja')
+    ->inCategory('t-shirts')
+    ->withTags(['sale', 'new-arrival'])
+    ->forBrand('stylehouse')
+    ->priceBetween(50_000, 500_000)
+    ->onlyInStock()
+    ->withStatus('published')
+    ->sortBy('price')
+    ->sortAscending()
+    ->paginate(24);
+```
+
+### ScoutSearchDriver
+
+```php
+// config/product-catalog.php
+'search' => [
+    'driver' => env('PRODUCT_CATALOG_SEARCH_DRIVER', 'database'),
+    'model' => \App\Models\Product::class,
+],
+```
+
+```php
+// app/Models/Product.php
+use Aliziodev\ProductCatalog\Concerns\Searchable;
+use Aliziodev\ProductCatalog\Models\Product as BaseProduct;
+use Laravel\Scout\Searchable as ScoutSearchable;
+
+class Product extends BaseProduct
+{
+    use ScoutSearchable, Searchable;
+}
+```
+
+```php
+use Aliziodev\ProductCatalog\Search\ProductSearchBuilder;
+use Aliziodev\ProductCatalog\Search\ScoutSearchDriver;
+
+ProductSearchBuilder::query('kemeja')
+    ->usingDriver(app(ScoutSearchDriver::class))
+    ->paginate(24);
+```
+
+> `ScoutSearchDriver` delegates text search to Laravel Scout, then applies catalog
+> filters and optional sort via the Eloquent `query()` callback. Without an explicit
+> `sort_by`, Scout engine relevance is preserved.
 
 ---
 
@@ -383,6 +446,7 @@ See `references/inventory.md` for full examples (ERP API, fallback strategy).
 4. **Never update `route_key`** — it is the permanent slug identifier. Changing it breaks all existing links.
 5. **Soft-deleted Brand/Category** — `$product->brand` returns `null`. Handle gracefully: `$product->brand?->name ?? 'No Brand'`.
 6. **Soft-deleted Tag pivot** — the pivot row in `catalog_product_tags` persists after soft delete. Clean up in the `Tag::forceDeleted` event if needed.
+7. **`Product::search()` is not the Scout entrypoint by itself** — for Scout integration, use your app Product model with `ScoutSearchable` and set `product-catalog.search.model` correctly.
 
 ---
 

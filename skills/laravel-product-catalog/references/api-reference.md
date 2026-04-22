@@ -12,7 +12,7 @@ Quick lookup for all scopes, methods, enums, events, exceptions, and DB tables.
 | `Product::draft()` | Status = draft |
 | `Product::archived()` | Status = archived |
 | `Product::inStock()` | Has at least one purchasable active variant (requires inventoryItem row!) |
-| `Product::search($term)` | Full-text: name, code, short_description, variant SKUs |
+| `Product::search($term)` | Local Eloquent scope search: name, code, short_description, variant SKUs |
 | `Product::forBrand($brand)` | Filter by brand model instance |
 | `Product::withTag($tag)` | Filter by tag model instance |
 | `Product::bySlug($slug)` | Filter by slug (matches on the permanent route_key suffix) |
@@ -92,6 +92,40 @@ $inv->adjust($variant, $delta, $reason, $reference)   // void
 $inv->set($variant, $qty, $reason, $reference)        // void
 
 ProductCatalog::extend($name, $resolver)  // register a custom driver
+```
+
+## Search Drivers
+
+```php
+ProductCatalog::search()          // configured default search driver
+ProductCatalog::search('database')
+ProductCatalog::search('scout')
+ProductCatalog::extendSearch($name, $resolver)
+```
+
+`ScoutSearchDriver` requirements:
+
+```php
+// config/product-catalog.php
+'search' => [
+    'driver' => env('PRODUCT_CATALOG_SEARCH_DRIVER', 'database'),
+    'model' => \App\Models\Product::class,
+],
+```
+
+- `search.model` must point to your application Product model
+- that model must extend the package base Product model
+- that model must use both `Laravel\Scout\Searchable` and `Aliziodev\ProductCatalog\Concerns\Searchable`
+
+`ProductSearchBuilder` helpers:
+
+```php
+ProductSearchBuilder::query($term)
+ProductSearchBuilder::fromRequest($request)
+    ->withStatus('draft')
+    ->sortBy('price')
+    ->sortAscending()
+    ->paginate(24);
 ```
 
 ---
