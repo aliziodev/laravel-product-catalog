@@ -2,6 +2,12 @@
 
 All notable changes to `aliziodev/laravel-product-catalog` will be documented in this file.
 
+## [1.2.1](https://github.com/aliziodev/laravel-product-catalog/compare/v1.2.0...v1.2.1) (2026-04-22)
+
+### Bug Fixes
+
+* normalize searchable price type and correct scout guard assertions ([2c9177f](https://github.com/aliziodev/laravel-product-catalog/commit/2c9177f8492f8d10ee6060851be2fcf85ac15859))
+
 ## [1.2.0](https://github.com/aliziodev/laravel-product-catalog/compare/v1.1.0...v1.2.0) (2026-04-22)
 
 ### Features
