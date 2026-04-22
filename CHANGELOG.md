@@ -2,6 +2,12 @@
 
 All notable changes to `aliziodev/laravel-product-catalog` will be documented in this file.
 
+## [1.4.1](https://github.com/aliziodev/laravel-product-catalog/compare/v1.4.0...v1.4.1) (2026-04-22)
+
+### Bug Fixes
+
+* implement Brand model, migration, resource, and API tests ([5f7f997](https://github.com/aliziodev/laravel-product-catalog/commit/5f7f997dbd0b3f38fb9176ef7e0cbbf0a6a0e9af))
+
 ## [1.4.0](https://github.com/aliziodev/laravel-product-catalog/compare/v1.3.1...v1.4.0) (2026-04-22)
 
 ### Features
