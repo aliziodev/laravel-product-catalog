@@ -424,4 +424,3 @@ Read these when you need deeper coverage on a topic:
 - `references/inventory.md` — Full custom driver guide (own table, ERP API, fallback strategy)
 - `references/use-cases.md` — Patterns for: Public Catalog, Online Store, Simple Ecommerce, Internal Catalog, Digital+Physical
 - `references/api-reference.md` — Complete list of scopes, methods, enums, events, exceptions, DB tables
-                    
