@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Aliziodev\ProductCatalog\Concerns;
 
+use Aliziodev\ProductCatalog\Exceptions\ProductCatalogException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Str;
 
@@ -15,7 +16,9 @@ use Illuminate\Support\Str;
  * - route_key is generated once on create and never changes.
  * - The human-readable prefix auto-updates when the source column (name) changes,
  *   unless the caller explicitly sets the slug field.
- * - Because uniqueness is guaranteed by route_key, no DB uniqueness check is needed.
+ * - Auto-generated slugs are always unique (route_key is random).
+ * - Manually-set slugs are validated for uniqueness before insert/update and throw
+ *   ProductCatalogException::duplicateSlug() instead of letting a raw DB error surface.
  */
 trait HasSlug
 {
@@ -31,6 +34,9 @@ trait HasSlug
                     $model->{$model->getSlugSourceColumn()},
                     $model->route_key,
                 );
+            } else {
+                // Slug was set manually — validate uniqueness before hitting the DB.
+                static::assertSlugUnique($model->slug);
             }
         });
 
@@ -44,6 +50,9 @@ trait HasSlug
                     $model->{$model->getSlugSourceColumn()},
                     $model->route_key,
                 );
+            } elseif ($model->isDirty('slug')) {
+                // Slug was changed manually — validate uniqueness before hitting the DB.
+                static::assertSlugUnique($model->slug, $model->getKey());
             }
         });
     }
@@ -114,5 +123,23 @@ trait HasSlug
         $separator = config('product-catalog.slug.separator', '-');
 
         return Str::slug($source, $separator).$separator.$routeKey;
+    }
+
+    /**
+     * Throw a friendly exception if the given slug is already in use.
+     *
+     * @param  int|string|null  $excludeId  Primary key of the record being updated (excluded from the check).
+     */
+    protected static function assertSlugUnique(string $slug, int|string|null $excludeId = null): void
+    {
+        $query = static::query()->where('slug', $slug);
+
+        if ($excludeId !== null) {
+            $query->whereKeyNot($excludeId);
+        }
+
+        if ($query->exists()) {
+            throw ProductCatalogException::duplicateSlug($slug, class_basename(static::class));
+        }
     }
 }
