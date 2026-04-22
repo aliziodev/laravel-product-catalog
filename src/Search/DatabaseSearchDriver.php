@@ -187,21 +187,33 @@ class DatabaseSearchDriver implements SearchDriverInterface
     }
 
     /**
+     * Filter products that have ALL the given tags (AND semantics).
+     *
+     * Single tag: a simple WHERE EXISTS — lowest overhead.
+     *
+     * Multiple tags: a single IN subquery with GROUP BY / HAVING instead of one
+     * correlated WHERE EXISTS clause per tag. For 3 tags this reduces the query
+     * from:
+     *   WHERE EXISTS (...tag1...) AND EXISTS (...tag2...) AND EXISTS (...tag3...)
+     * to:
+     *   WHERE id IN (SELECT product_id … GROUP BY product_id HAVING COUNT = 3)
+     *
      * @param  array<int|string>  $tags
      */
     private function applyTags(Builder $builder, array $tags): void
     {
         $prefix = config('product-catalog.table_prefix', 'catalog_');
+        $count = count($tags);
 
-        foreach ($tags as $tag) {
+        if ($count === 0) {
+            return;
+        }
+
+        if ($count === 1) {
+            $tag = $tags[0];
             $builder->whereExists(function ($sub) use ($prefix, $tag) {
                 $sub->from($prefix.'product_tags')
-                    ->join(
-                        $prefix.'tags',
-                        "{$prefix}tags.id",
-                        '=',
-                        "{$prefix}product_tags.tag_id"
-                    )
+                    ->join($prefix.'tags', "{$prefix}tags.id", '=', "{$prefix}product_tags.tag_id")
                     ->whereColumn("{$prefix}product_tags.product_id", "{$prefix}products.id")
                     ->whereNull("{$prefix}tags.deleted_at");
 
@@ -209,7 +221,30 @@ class DatabaseSearchDriver implements SearchDriverInterface
                     ? $sub->where("{$prefix}tags.id", $tag)
                     : $sub->where("{$prefix}tags.slug", $tag);
             });
+
+            return;
         }
+
+        // Multiple tags — single subquery.
+        $ids = array_values(array_filter($tags, 'is_int'));
+        $slugs = array_values(array_filter($tags, 'is_string'));
+
+        $builder->whereIn('id', function ($sub) use ($prefix, $ids, $slugs, $count) {
+            $sub->from($prefix.'product_tags', 'pt')
+                ->select('pt.product_id')
+                ->join("{$prefix}tags as t", 't.id', '=', 'pt.tag_id')
+                ->whereNull('t.deleted_at')
+                ->where(function ($q) use ($ids, $slugs) {
+                    if (! empty($ids)) {
+                        $q->orWhereIn('t.id', $ids);
+                    }
+                    if (! empty($slugs)) {
+                        $q->orWhereIn('t.slug', $slugs);
+                    }
+                })
+                ->groupBy('pt.product_id')
+                ->havingRaw('COUNT(DISTINCT pt.tag_id) = ?', [$count]);
+        });
     }
 
     private function applyPriceRange(Builder $builder, ?float $min, ?float $max): void

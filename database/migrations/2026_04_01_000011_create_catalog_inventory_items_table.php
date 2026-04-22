@@ -20,6 +20,8 @@ return new class extends Migration
             $table->unsignedSmallInteger('low_stock_threshold')->nullable();
             $table->string('policy')->default('track');
             $table->timestamps();
+            // Speeds up inStock() and lowStock() scopes that filter by policy value.
+            $table->index('policy', 'idx_catalog_inventory_items_policy');
         });
     }
 

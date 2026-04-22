@@ -238,18 +238,42 @@ class Product extends Model
     // Pricing helpers
     // -------------------------------------------------------------------------
 
+    /**
+     * Lowest active variant price.
+     *
+     * Uses the in-memory variants collection when already eager-loaded (zero extra
+     * queries). Falls back to a single aggregate DB query when not loaded.
+     */
     public function minPrice(): ?float
     {
-        return $this->variants()->active()->min('price') !== null
-            ? (float) $this->variants()->active()->min('price')
-            : null;
+        if ($this->relationLoaded('variants')) {
+            $min = $this->variants->where('is_active', true)->min('price');
+
+            return $min !== null ? (float) $min : null;
+        }
+
+        $value = $this->variants()->active()->min('price');
+
+        return $value !== null ? (float) $value : null;
     }
 
+    /**
+     * Highest active variant price.
+     *
+     * Uses the in-memory variants collection when already eager-loaded (zero extra
+     * queries). Falls back to a single aggregate DB query when not loaded.
+     */
     public function maxPrice(): ?float
     {
-        return $this->variants()->active()->max('price') !== null
-            ? (float) $this->variants()->active()->max('price')
-            : null;
+        if ($this->relationLoaded('variants')) {
+            $max = $this->variants->where('is_active', true)->max('price');
+
+            return $max !== null ? (float) $max : null;
+        }
+
+        $value = $this->variants()->active()->max('price');
+
+        return $value !== null ? (float) $value : null;
     }
 
     /** @return array{min: float, max: float}|null */

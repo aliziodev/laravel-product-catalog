@@ -42,6 +42,9 @@ return new class extends Migration
             $table->index('primary_category_id');
             $table->index('type');
             $table->index(['status', 'published_at']);
+            // Speeds up ORDER BY name and prefix/exact LIKE searches.
+            // Note: leading-wildcard LIKE ("%term%") cannot use a B-tree index.
+            $table->index('name', 'idx_catalog_products_name');
         });
     }
 

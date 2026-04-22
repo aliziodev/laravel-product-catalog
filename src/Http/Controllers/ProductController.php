@@ -31,7 +31,7 @@ class ProductController extends Controller
         $modelClass = config('product-catalog.model', Product::class);
 
         $product = $modelClass::published()
-            ->with(['brand', 'primaryCategory', 'tags', 'variants', 'options.values'])
+            ->with(['brand', 'primaryCategory', 'tags', 'variants.inventoryItem', 'options.values'])
             ->bySlug($slug)
             ->firstOrFail();
 
