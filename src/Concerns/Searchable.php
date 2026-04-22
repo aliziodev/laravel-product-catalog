@@ -31,6 +31,13 @@ trait Searchable
      */
     public function toSearchableArray(): array
     {
+        $minPrice = null;
+
+        if ($this->relationLoaded('variants')) {
+            $minPrice = $this->variants->where('is_active', true)->min('price');
+            $minPrice = $minPrice !== null ? (float) $minPrice : null;
+        }
+
         return [
             'id' => $this->id,
             'name' => $this->name,
@@ -71,9 +78,7 @@ trait Searchable
             'skus' => $this->relationLoaded('variants')
                 ? $this->variants->pluck('sku')->filter()->values()->all()
                 : [],
-            'min_price' => $this->relationLoaded('variants')
-                ? $this->variants->where('is_active', true)->min('price')
-                : null,
+            'min_price' => $minPrice,
 
             'published_at' => $this->published_at?->toISOString(),
         ];
