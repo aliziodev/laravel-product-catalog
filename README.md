@@ -172,6 +172,11 @@ php artisan catalog:install
 // config/product-catalog.php
 return [
 
+    // The Eloquent model used throughout the package (search drivers, API controller).
+    // Override when extending the base Product model in your application.
+    // Your model must extend Aliziodev\ProductCatalog\Models\Product.
+    'model' => \Aliziodev\ProductCatalog\Models\Product::class,
+
     // Prefix for all package tables. Change BEFORE running migrations.
     'table_prefix' => env('PRODUCT_CATALOG_TABLE_PREFIX', 'catalog_'),
 
@@ -192,10 +197,6 @@ return [
     'search' => [
         // Built-in: 'database' (default) or 'scout'.
         'driver' => env('PRODUCT_CATALOG_SEARCH_DRIVER', 'database'),
-        // For Scout, point this to your app model that extends the package
-        // Product model and uses Laravel\Scout\Searchable + the package
-        // Concerns\Searchable trait.
-        'model' => \App\Models\Product::class,
     ],
 
     'routes' => [
@@ -419,15 +420,16 @@ PRODUCT_CATALOG_SEARCH_FULLTEXT=false
 
 ```php
 // config/product-catalog.php
+'model' => \App\Models\Product::class,  // top-level — used by all subsystems
 'search' => [
     'driver' => env('PRODUCT_CATALOG_SEARCH_DRIVER', 'database'),
-    'model' => \App\Models\Product::class,
-];
+],
 ```
 
-When using `scout`, `search.model` should point to your application Product
-model that extends the package base model and uses both
-`Laravel\Scout\Searchable` and `Aliziodev\ProductCatalog\Concerns\Searchable`.
+When using `scout`, set the top-level `model` key to your application Product model
+that extends the package base model and uses both `Laravel\Scout\Searchable` and
+`Aliziodev\ProductCatalog\Concerns\Searchable`. This same key is read by the database
+search driver and the API controller — configure your extended model once, everywhere.
 
 ```php
 // Custom search driver
