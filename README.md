@@ -189,6 +189,15 @@ return [
         'route_key_length' => (int) env('PRODUCT_CATALOG_ROUTE_KEY_LENGTH', 8),
     ],
 
+    'search' => [
+        // Built-in: 'database' (default) or 'scout'.
+        'driver' => env('PRODUCT_CATALOG_SEARCH_DRIVER', 'database'),
+        // For Scout, point this to your app model that extends the package
+        // Product model and uses Laravel\Scout\Searchable + the package
+        // Concerns\Searchable trait.
+        'model' => \App\Models\Product::class,
+    ],
+
     'routes' => [
         // Set true to register the built-in read-only catalog API routes.
         'enabled'    => env('PRODUCT_CATALOG_ROUTES_ENABLED', false),
@@ -407,6 +416,18 @@ PRODUCT_CATALOG_SEARCH_DRIVER=database  # or: scout
 # Optional — MySQL/MariaDB only, requires FULLTEXT index
 PRODUCT_CATALOG_SEARCH_FULLTEXT=false
 ```
+
+```php
+// config/product-catalog.php
+'search' => [
+    'driver' => env('PRODUCT_CATALOG_SEARCH_DRIVER', 'database'),
+    'model' => \App\Models\Product::class,
+];
+```
+
+When using `scout`, `search.model` should point to your application Product
+model that extends the package base model and uses both
+`Laravel\Scout\Searchable` and `Aliziodev\ProductCatalog\Concerns\Searchable`.
 
 ```php
 // Custom search driver
