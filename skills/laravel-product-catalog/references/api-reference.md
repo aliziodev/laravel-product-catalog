@@ -245,4 +245,15 @@ php artisan catalog:seed-demo  # seed demo data (dev only)
 | `catalog_brands` | Brands |
 | `catalog_categories` | Categories (with parent_id) |
 | `catalog_tags` | Tags |
-| `catalog_product_categories` | Pivot: 
+| `catalog_product_categories` | Pivot: product ↔ extra categories |
+| `catalog_product_tags` | Pivot: product ↔ tags |
+
+### Indexes
+
+| Table | Column(s) | Index name | Migration |
+|-------|-----------|------------|-----------|
+| `catalog_products` | `name` | `idx_catalog_products_name` | `000013_add_performance_indexes` |
+| `catalog_inventory_items` | `policy` | `idx_catalog_inventory_items_policy` | `000013_add_performance_indexes` |
+
+> The `name` index speeds up `ORDER BY name` sorting and prefix LIKE searches.
+> The `policy` index speeds up `inStock()` and `lowStock()` scopes which filter by policy value. 
