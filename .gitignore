@@ -15,7 +15,11 @@ composer.lock
 *.swo
 
 # Agents
-/.claude/
+.claude/*
+!.claude/skills/
+!.claude/skills/**
+*.skill
+*-eval-review.html
 
 # OS
 .DS_Store
