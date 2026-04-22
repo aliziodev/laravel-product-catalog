@@ -2,6 +2,12 @@
 
 All notable changes to `aliziodev/laravel-product-catalog` will be documented in this file.
 
+## [1.2.0](https://github.com/aliziodev/laravel-product-catalog/compare/v1.1.0...v1.2.0) (2026-04-22)
+
+### Features
+
+* add search driver system with Scout integration ([0c5c9b3](https://github.com/aliziodev/laravel-product-catalog/commit/0c5c9b31f12b0d9ef66ad5d3d6122a258f624fc6))
+
 ## [1.1.0](https://github.com/aliziodev/laravel-product-catalog/compare/v1.0.1...v1.1.0) (2026-04-22)
 
 ### Features
