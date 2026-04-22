@@ -15,6 +15,28 @@ A professional, variant-centric product catalog package for Laravel 12+. Designe
 
 ---
 
+## Table of Contents
+
+- [Suitable For](#suitable-for)
+- [Features](#features)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Basic Usage](#basic-usage)
+  - [Products](#products)
+  - [Variants & Options](#variants--options)
+  - [Inventory](#inventory)
+  - [Taxonomy](#taxonomy)
+  - [Querying](#querying)
+- [Slug Routing](#slug-routing)
+- [API Resources](#api-resources)
+- [Events](#events)
+- [Inventory Policies](#inventory-policies)
+- [Spatie Media Library Integration](#spatie-media-library-integration)
+- [Custom Inventory Driver](#custom-inventory-driver)
+- [Use-Case Docs](#use-case-docs)
+
+---
+
 ## Suitable For
 
 | Use Case | Description |
@@ -116,30 +138,6 @@ $product->publish();
 // 5. Query
 Product::published()->inStock()->with('variants')->get();
 ```
-
----
-
-## Table of Contents
-
-- [Suitable For](#suitable-for)
-- [Features](#features)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Basic Usage](#basic-usage)
-  - [Products](#products)
-  - [Variants & Options](#variants--options)
-  - [Inventory](#inventory)
-  - [Taxonomy](#taxonomy)
-  - [Querying](#querying)
-- [Slug Routing](#slug-routing)
-- [API Resources](#api-resources)
-- [Events](#events)
-- [Inventory Policies](#inventory-policies)
-- [Spatie Media Library Integration](#spatie-media-library-integration)
-- [Custom Inventory Driver](#custom-inventory-driver)
-- [Use-Case Docs](#use-case-docs)
-
----
 
 ## Installation
 
