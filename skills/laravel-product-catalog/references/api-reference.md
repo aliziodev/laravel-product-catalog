@@ -252,8 +252,8 @@ php artisan catalog:seed-demo  # seed demo data (dev only)
 
 | Table | Column(s) | Index name | Migration |
 |-------|-----------|------------|-----------|
-| `catalog_products` | `name` | `idx_catalog_products_name` | `000013_add_performance_indexes` |
-| `catalog_inventory_items` | `policy` | `idx_catalog_inventory_items_policy` | `000013_add_performance_indexes` |
+| `catalog_products` | `name` | `idx_catalog_products_name` | `000004_create_catalog_products_table` |
+| `catalog_inventory_items` | `policy` | `idx_catalog_inventory_items_policy` | `000011_create_catalog_inventory_items_table` |
 
 > The `name` index speeds up `ORDER BY name` sorting and prefix LIKE searches.
 > The `policy` index speeds up `inStock()` and `lowStock()` scopes which filter by policy value. 
