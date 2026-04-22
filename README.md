@@ -1,7 +1,7 @@
 # Laravel Product Catalog
 
 <p align="center">
-  <a href="https://codecov.io/gh/aliziodev/laravel-product-catalog"><img src="https://codecov.io/gh/aliziodev/laravel-product-catalog/branch/master/graph/badge.svg" alt="codecov"></a>
+  <a href="https://codecov.io/gh/aliziodev/laravel-product-catalog"><img src="https://codecov.io/gh/aliziodev/laravel-product-catalog/graph/badge.svg?token=RCJT9CCXA8" alt="codecov"></a>
   <a href="https://github.com/aliziodev/laravel-product-catalog/actions"><img src="https://github.com/aliziodev/laravel-product-catalog/workflows/Tests/badge.svg" alt="Tests"></a>
   <a href="https://packagist.org/packages/aliziodev/laravel-product-catalog"><img src="https://img.shields.io/packagist/v/aliziodev/laravel-product-catalog.svg" alt="Latest Version on Packagist"></a>
 </br>
