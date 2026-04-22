@@ -22,4 +22,12 @@ class ProductCatalogException extends RuntimeException
     {
         return new static("Product cannot be published: {$reason}");
     }
+
+    public static function duplicateSlug(string $slug, string $model): static
+    {
+        return new static(
+            "Slug [{$slug}] is already taken by another {$model}. ".
+            'Either use a unique slug or omit the slug field to have one generated automatically.'
+        );
+    }
 }

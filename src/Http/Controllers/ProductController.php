@@ -27,7 +27,10 @@ class ProductController extends Controller
 
     public function show(string $slug): ProductResource
     {
-        $product = Product::published()
+        /** @var class-string<Product> $modelClass */
+        $modelClass = config('product-catalog.model', Product::class);
+
+        $product = $modelClass::published()
             ->with(['brand', 'primaryCategory', 'tags', 'variants', 'options.values'])
             ->bySlug($slug)
             ->firstOrFail();

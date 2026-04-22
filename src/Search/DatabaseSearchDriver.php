@@ -29,7 +29,10 @@ class DatabaseSearchDriver implements SearchDriverInterface
     {
         // Respect caller-supplied eager-load list; fall back to sensible defaults.
         $relations = $filters['_with'] ?? ['defaultVariant', 'brand', 'primaryCategory'];
-        $builder = Product::query()->with($relations);
+
+        /** @var class-string<Product> $modelClass */
+        $modelClass = config('product-catalog.model', Product::class);
+        $builder = $modelClass::query()->with($relations);
 
         $this->applyFilters($builder, $filters);
 
@@ -102,7 +105,8 @@ class DatabaseSearchDriver implements SearchDriverInterface
         match ($sortBy) {
             'price' => $builder->orderByRaw(
                 "(SELECT MIN(price) FROM {$prefix}product_variants
-                  WHERE product_id = {$prefix}products.id AND is_active = 1) {$dir}"
+                  WHERE product_id = {$prefix}products.id AND is_active = ?) {$dir}",
+                [1]
             ),
             'name' => $builder->orderBy('name', $dir),
             'oldest' => $builder->orderBy('published_at', 'asc'),

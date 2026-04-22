@@ -23,7 +23,9 @@ class DatabaseInventoryProvider implements InventoryProviderInterface
         return match ($item->policy) {
             InventoryPolicy::Allow => PHP_INT_MAX,
             InventoryPolicy::Deny => 0,
-            InventoryPolicy::Track => $item->quantity,
+            // Return available quantity (quantity − reserved) so callers know how
+            // many units can actually be sold, consistent with Product::scopeInStock().
+            InventoryPolicy::Track => $item->availableQuantity(),
         };
     }
 
@@ -39,7 +41,9 @@ class DatabaseInventoryProvider implements InventoryProviderInterface
         return match ($item->policy) {
             InventoryPolicy::Allow => true,
             InventoryPolicy::Deny => false,
-            InventoryPolicy::Track => $item->quantity >= $quantity,
+            // Check available quantity (quantity − reserved) so that reserved stock
+            // is not double-sold, consistent with Product::scopeInStock().
+            InventoryPolicy::Track => $item->availableQuantity() >= $quantity,
         };
     }
 

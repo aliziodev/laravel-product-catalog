@@ -52,6 +52,47 @@ it('reports in stock when quantity is sufficient', function () {
         ->and(ProductCatalog::inventory()->canFulfill($variant, 6))->toBeFalse();
 });
 
+it('canFulfill() accounts for reserved_quantity and returns false when available stock is insufficient', function () {
+    $variant = ProductVariant::factory()->create();
+    // 5 total, 4 reserved → only 1 available
+    InventoryItem::factory()->create([
+        'variant_id' => $variant->id,
+        'quantity' => 5,
+        'reserved_quantity' => 4,
+        'policy' => InventoryPolicy::Track,
+    ]);
+
+    expect(ProductCatalog::inventory()->canFulfill($variant, 1))->toBeTrue()
+        ->and(ProductCatalog::inventory()->canFulfill($variant, 2))->toBeFalse();
+});
+
+it('getQuantity() returns available quantity (total minus reserved) for tracked variants', function () {
+    $variant = ProductVariant::factory()->create();
+    // 10 total, 3 reserved → 7 available
+    InventoryItem::factory()->create([
+        'variant_id' => $variant->id,
+        'quantity' => 10,
+        'reserved_quantity' => 3,
+        'policy' => InventoryPolicy::Track,
+    ]);
+
+    expect(ProductCatalog::inventory()->getQuantity($variant))->toBe(7);
+});
+
+it('isInStock() returns false when all stock is reserved', function () {
+    $variant = ProductVariant::factory()->create();
+    // 5 total, 5 reserved → 0 available
+    InventoryItem::factory()->create([
+        'variant_id' => $variant->id,
+        'quantity' => 5,
+        'reserved_quantity' => 5,
+        'policy' => InventoryPolicy::Track,
+    ]);
+
+    expect(ProductCatalog::inventory()->isInStock($variant))->toBeFalse()
+        ->and(ProductCatalog::inventory()->getQuantity($variant))->toBe(0);
+});
+
 it('always returns in stock for allow policy', function () {
     $variant = ProductVariant::factory()->create();
     InventoryItem::factory()->create(['variant_id' => $variant->id, 'quantity' => 0, 'policy' => InventoryPolicy::Allow]);

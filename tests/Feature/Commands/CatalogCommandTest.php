@@ -82,3 +82,28 @@ it('catalog:seed-demo runs in production with --force', function () {
 
     expect(Product::count())->toBe(4);
 });
+
+// --- idempotency ---
+
+it('catalog:seed-demo can be run twice without error', function () {
+    $this->artisan('catalog:seed-demo')->assertSuccessful();
+    $this->artisan('catalog:seed-demo')->assertSuccessful();
+});
+
+it('catalog:seed-demo does not duplicate records on second run', function () {
+    $this->artisan('catalog:seed-demo')->assertSuccessful();
+    $this->artisan('catalog:seed-demo')->assertSuccessful();
+
+    expect(Product::count())->toBe(4)
+        ->and(Brand::count())->toBe(2)
+        ->and(Category::count())->toBe(5)
+        ->and(Tag::count())->toBe(4);
+});
+
+it('catalog:seed-demo warns when all data already exists', function () {
+    $this->artisan('catalog:seed-demo')->assertSuccessful();
+
+    $this->artisan('catalog:seed-demo')
+        ->expectsOutputToContain('already exists')
+        ->assertSuccessful();
+});

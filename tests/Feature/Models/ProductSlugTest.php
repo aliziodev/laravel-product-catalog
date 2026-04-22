@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Aliziodev\ProductCatalog\Exceptions\ProductCatalogException;
 use Aliziodev\ProductCatalog\Models\Product;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 
@@ -198,3 +199,46 @@ it('findBySlug returns null when slug does not match any product', function () {
 it('findBySlugOrFail throws ModelNotFoundException when slug does not match', function () {
     Product::findBySlugOrFail('does-not-exist-zzzzzz');
 })->throws(ModelNotFoundException::class);
+
+// --- duplicate manual slug guard ---
+
+it('throws ProductCatalogException when creating with a duplicate manual slug', function () {
+    Product::factory()->create(['slug' => 'my-slug']);
+
+    Product::factory()->create(['slug' => 'my-slug']);
+})->throws(ProductCatalogException::class);
+
+it('exception message contains the conflicting slug', function () {
+    Product::factory()->create(['slug' => 'kaos-polos']);
+
+    expect(fn () => Product::factory()->create(['slug' => 'kaos-polos']))
+        ->toThrow(ProductCatalogException::class, 'kaos-polos');
+});
+
+it('exception message suggests omitting the slug field', function () {
+    Product::factory()->create(['slug' => 'taken-slug']);
+
+    expect(fn () => Product::factory()->create(['slug' => 'taken-slug']))
+        ->toThrow(ProductCatalogException::class, 'omit the slug field');
+});
+
+it('throws ProductCatalogException when updating a product to a slug already in use', function () {
+    Product::factory()->create(['slug' => 'occupied-slug']);
+    $second = Product::factory()->create(['name' => 'Other Product']);
+
+    $second->update(['slug' => 'occupied-slug']);
+})->throws(ProductCatalogException::class);
+
+it('does not throw when updating a product slug to its own current slug', function () {
+    $product = Product::factory()->create(['slug' => 'original-slug']);
+
+    // Saving the same slug on the same record must not trigger the guard
+    expect(fn () => $product->update(['slug' => 'original-slug']))->not->toThrow(ProductCatalogException::class);
+});
+
+it('two products with the same name via auto-generate never trigger the duplicate guard', function () {
+    expect(function () {
+        Product::factory()->create(['name' => 'Kaos Polos']);
+        Product::factory()->create(['name' => 'Kaos Polos']);
+    })->not->toThrow(ProductCatalogException::class);
+});

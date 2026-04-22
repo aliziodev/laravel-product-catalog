@@ -11,8 +11,11 @@ use Illuminate\Database\Eloquent\Model;
 interface InventoryProviderInterface
 {
     /**
-     * Return the current stock quantity for the given variant.
-     * Returns PHP_INT_MAX for unlimited-stock drivers.
+     * Return the available stock quantity for the given variant.
+     *
+     * "Available" means physical quantity minus any reserved quantity.
+     * Returns PHP_INT_MAX for unlimited-stock drivers (Allow policy).
+     * Returns 0 for drivers that always deny purchase (Deny policy).
      */
     public function getQuantity(ProductVariant $variant): int;
 

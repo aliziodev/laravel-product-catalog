@@ -54,7 +54,7 @@ class ScoutSearchDriver implements SearchDriverInterface
 
     protected function searchableModelClass(): string
     {
-        $modelClass = config('product-catalog.search.model', Product::class);
+        $modelClass = config('product-catalog.model', Product::class);
 
         if (! is_string($modelClass) || $modelClass === '' || ! class_exists($modelClass)) {
             throw new RuntimeException('ScoutSearchDriver search model is not configured correctly.');

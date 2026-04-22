@@ -8,6 +8,7 @@ use Aliziodev\ProductCatalog\Console\Commands\InstallCommand;
 use Aliziodev\ProductCatalog\Console\Commands\SeedDemoCommand;
 use Aliziodev\ProductCatalog\Contracts\InventoryProviderInterface;
 use Aliziodev\ProductCatalog\Contracts\SearchDriverInterface;
+use Aliziodev\ProductCatalog\Models\Product;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 
@@ -35,6 +36,7 @@ class ProductCatalogServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $this->validateConfiguration();
         $this->registerPublishables();
         $this->registerMigrations();
         $this->registerRoutes();
@@ -86,5 +88,38 @@ class ProductCatalogServiceProvider extends ServiceProvider
             InstallCommand::class,
             SeedDemoCommand::class,
         ]);
+    }
+
+    /**
+     * Validate critical configuration values and throw early with a helpful message
+     * rather than letting an obscure error surface deep in a request.
+     *
+     * Only validates values the developer must set explicitly (e.g. a custom model
+     * class). Driver names are not validated here because custom drivers registered
+     * via extend() / extendSearch() arrive after boot.
+     */
+    protected function validateConfiguration(): void
+    {
+        $modelClass = config('product-catalog.model');
+
+        if (! is_string($modelClass) || $modelClass === '') {
+            throw new \InvalidArgumentException(
+                'product-catalog.model must be a non-empty class name string.'
+            );
+        }
+
+        if (! class_exists($modelClass)) {
+            throw new \InvalidArgumentException(
+                "product-catalog.model [{$modelClass}] does not exist. "
+                .'Ensure the class is autoloaded and the config value is correct.'
+            );
+        }
+
+        if ($modelClass !== Product::class && ! is_subclass_of($modelClass, Product::class)) {
+            throw new \InvalidArgumentException(
+                "product-catalog.model [{$modelClass}] must extend "
+                .Product::class.'.'
+            );
+        }
     }
 }
