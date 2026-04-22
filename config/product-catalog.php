@@ -7,6 +7,25 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Product Model
+    |--------------------------------------------------------------------------
+    | The Eloquent model class used throughout the package — search drivers,
+    | API controller, and any future extension point all resolve through this
+    | single key.
+    |
+    | Override this after extending the base model in your application:
+    |
+    |   // config/product-catalog.php
+    |   'model' => App\Models\Product::class,
+    |
+    | Your model must extend Aliziodev\ProductCatalog\Models\Product.
+    | Add Laravel\Scout\Searchable + the package's Concerns\Searchable trait
+    | here (not on the base model) if you want Scout indexing.
+    */
+    'model' => Product::class,
+
+    /*
+    |--------------------------------------------------------------------------
     | Table Prefix
     |--------------------------------------------------------------------------
     | Prefix for all package database tables. Change before running migrations.
@@ -62,15 +81,6 @@ return [
     */
     'search' => [
         'driver' => env('PRODUCT_CATALOG_SEARCH_DRIVER', 'database'),
-
-        /*
-         | model — The Scout-searchable model class used by ScoutSearchDriver.
-         |
-         | Set this to your application Product model after you extend the package
-         | base model and add Laravel\Scout\Searchable plus the package
-         | Concerns\Searchable trait.
-         */
-        'model' => Product::class,
 
         /*
          | fulltext — Enable MySQL/MariaDB FULLTEXT search for the database driver.
