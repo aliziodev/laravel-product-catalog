@@ -42,6 +42,43 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Search
+    |--------------------------------------------------------------------------
+    | The default search driver. Built-in: 'database', 'scout'.
+    |
+    | database — Pure Eloquent LIKE / FULLTEXT search. Works out of the box
+    |            with no extra dependencies. Best for small-to-medium catalogs.
+    |
+    | scout    — Delegates text search to Laravel Scout (Algolia, Meilisearch,
+    |            Typesense, or the Scout database engine). Requires:
+    |              1. composer require laravel/scout
+    |              2. Configure a Scout driver in config/scout.php
+    |              3. Add Laravel\Scout\Searchable + the package's Searchable
+    |                 concern to your Product model, then run scout:import.
+    |
+    | Custom drivers can be registered via:
+    |   ProductCatalog::extendSearch('my-driver', fn($app) => new MyDriver());
+    */
+    'search' => [
+        'driver' => env('PRODUCT_CATALOG_SEARCH_DRIVER', 'database'),
+
+        /*
+         | fulltext — Enable MySQL/MariaDB FULLTEXT search for the database driver.
+         |
+         | When false (default): uses LIKE "%term%" — works on all databases
+         |   including SQLite, but cannot use B-tree indexes (slow on large tables).
+         |
+         | When true: uses MATCH() AGAINST() — requires:
+         |   1. MySQL or MariaDB (not supported by SQLite/PostgreSQL)
+         |   2. A FULLTEXT index on the products table. Add it via migration:
+         |        $table->fullText(['name', 'short_description']);
+         |   3. Keep this false in your testing environment (SQLite).
+         */
+        'fulltext' => env('PRODUCT_CATALOG_SEARCH_FULLTEXT', false),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Routes
     |--------------------------------------------------------------------------
     | Set enabled to true to register the read-only catalog API routes.

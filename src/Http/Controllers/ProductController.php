@@ -6,6 +6,7 @@ namespace Aliziodev\ProductCatalog\Http\Controllers;
 
 use Aliziodev\ProductCatalog\Http\Resources\ProductResource;
 use Aliziodev\ProductCatalog\Models\Product;
+use Aliziodev\ProductCatalog\Search\ProductSearchBuilder;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controller;
@@ -14,33 +15,14 @@ class ProductController extends Controller
 {
     public function index(Request $request): AnonymousResourceCollection
     {
-        $query = Product::query()
-            ->published()
-            ->with(['brand', 'primaryCategory', 'tags']);
-
-        if ($request->filled('brand')) {
-            $query->forBrand((int) $request->brand);
-        }
-
-        if ($request->filled('category')) {
-            $categoryId = (int) $request->category;
-            $query->where(function ($q) use ($categoryId) {
-                $q->where('primary_category_id', $categoryId)
-                    ->orWhereHas('categories', fn ($sub) => $sub->where('id', $categoryId));
-            });
-        }
-
-        if ($request->filled('tag')) {
-            $query->withTag((int) $request->tag);
-        }
-
-        if ($request->filled('type')) {
-            $query->where('type', $request->type);
-        }
-
         $perPage = min((int) $request->input('per_page', 15), 50);
+        $page = (int) $request->input('page', 1);
 
-        return ProductResource::collection($query->paginate($perPage));
+        $paginator = ProductSearchBuilder::fromRequest($request)
+            ->withRelations(['brand', 'primaryCategory', 'tags'])
+            ->paginate($perPage, $page);
+
+        return ProductResource::collection($paginator);
     }
 
     public function show(string $slug): ProductResource

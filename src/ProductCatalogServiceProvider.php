@@ -7,6 +7,7 @@ namespace Aliziodev\ProductCatalog;
 use Aliziodev\ProductCatalog\Console\Commands\InstallCommand;
 use Aliziodev\ProductCatalog\Console\Commands\SeedDemoCommand;
 use Aliziodev\ProductCatalog\Contracts\InventoryProviderInterface;
+use Aliziodev\ProductCatalog\Contracts\SearchDriverInterface;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 
@@ -24,6 +25,11 @@ class ProductCatalogServiceProvider extends ServiceProvider
         $this->app->bind(
             InventoryProviderInterface::class,
             fn ($app) => $app->make('product-catalog')->inventory()
+        );
+
+        $this->app->bind(
+            SearchDriverInterface::class,
+            fn ($app) => $app->make('product-catalog')->search()
         );
     }
 

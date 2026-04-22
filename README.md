@@ -34,7 +34,10 @@ A professional, variant-centric product catalog package for Laravel 12+. Designe
 - Products with lifecycle status: `draft` → `published` → `archived`
 - Product code (`code`) as the parent SKU; per-variant SKUs for child variants
 - Permanent slug routing — URLs stay valid even when the product name changes
-- Full-text search across name, code, description, and variant SKUs
+- `ProductSearchBuilder` — fluent catalog-aware search with filters for category, brand, tags, price range, and stock status
+- `fromRequest()` — map HTTP query-string params to the builder in one line
+- Text search via LIKE (zero config) or MySQL FULLTEXT (opt-in via `search.fulltext = true`)
+- Scout integration — plug in Algolia, Meilisearch, or Typesense via `ScoutSearchDriver`
 - Taxonomy: Brand, Category (parent–child hierarchy), Tag — all with soft delete
 
 **Variants & Options**
@@ -368,6 +371,56 @@ Product::withTag($tag)->inStock()->get();
 use Aliziodev\ProductCatalog\Models\InventoryItem;
 
 InventoryItem::lowStock()->with('variant.product')->get();
+```
+
+---
+
+## Search
+
+```php
+use Aliziodev\ProductCatalog\Search\ProductSearchBuilder;
+
+// Fluent API
+ProductSearchBuilder::query('kemeja')
+    ->inCategory('t-shirts')           // slug or ID
+    ->withTags(['sale', 'new-arrival']) // AND logic, slug or ID
+    ->forBrand('stylehouse')            // slug or ID
+    ->priceBetween(50_000, 500_000)
+    ->onlyInStock()
+    ->sortBy('price')->sortAscending()
+    ->paginate(24);
+
+// Build from HTTP request — maps q, category, brand, tag/tags[],
+// min_price, max_price, in_stock, type, sort_by, sort_direction
+ProductSearchBuilder::fromRequest($request)->paginate(24);
+
+// Control which relations are eager-loaded
+ProductSearchBuilder::query('laptop')
+    ->withRelations(['brand', 'primaryCategory', 'tags', 'defaultVariant'])
+    ->paginate(20);
+```
+
+The default driver is `database` (Eloquent LIKE, no extra dependencies). Switch to `scout` driver for Meilisearch, Algolia, or Typesense — see [docs/scout-integration.md](docs/scout-integration.md).
+
+```env
+# .env
+PRODUCT_CATALOG_SEARCH_DRIVER=database  # or: scout
+
+# Optional — MySQL/MariaDB only, requires FULLTEXT index
+PRODUCT_CATALOG_SEARCH_FULLTEXT=false
+```
+
+```php
+// Custom search driver
+use Aliziodev\ProductCatalog\Facades\ProductCatalog;
+
+ProductCatalog::extendSearch('typesense', function ($app) {
+    return new \App\Search\TypesenseSearchDriver;
+});
+```
+
+```env
+PRODUCT_CATALOG_SEARCH_DRIVER=typesense
 ```
 
 ---
@@ -753,6 +806,7 @@ Detailed guides for specific scenarios:
 | [Internal Catalog](docs/internal-catalog.md) | B2B / internal product database with cost price and meta fields |
 | [Digital & Physical Products](docs/digital-physical-listing.md) | Mixed catalog with unlimited-stock and downloadable variants |
 | [Custom Inventory Provider](docs/custom-inventory-provider.md) | Connect ERP, WMS, Redis, or any external stock source |
+| [Scout Integration](docs/scout-integration.md) | Full-text search with Algolia, Meilisearch, or Typesense via Laravel Scout |
 | [Configuration Reference](docs/configuration.md) | Deep dive into every config key with pitfalls and gotchas |
 
 ---

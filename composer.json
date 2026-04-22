@@ -30,6 +30,9 @@
         "illuminate/database": "^12.0|^13.0",
         "illuminate/events": "^12.0|^13.0"
     },
+    "suggest": {
+        "laravel/scout": "Required to use the ScoutSearchDriver (^10.0). Enables Algolia, Meilisearch, Typesense, and database full-text search."
+    },
     "require-dev": {
         "orchestra/testbench": "^10.0|^11.0",
         "pestphp/pest": "^4.0",
