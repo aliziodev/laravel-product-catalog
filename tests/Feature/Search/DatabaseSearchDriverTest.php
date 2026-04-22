@@ -233,6 +233,17 @@ it('sorts by name ascending', function () {
     expect($names)->toBe(['Apple', 'Mango', 'Zebra']);
 });
 
+it('sorts by oldest (published_at ascending)', function () {
+    $first = makePublishedProduct(['published_at' => now()->subDays(10)]);
+    $second = makePublishedProduct(['published_at' => now()->subDays(5)]);
+    $third = makePublishedProduct(['published_at' => now()->subDays(1)]);
+
+    $result = app(DatabaseSearchDriver::class)->paginate('', ['sort_by' => 'oldest'], 15, 1);
+
+    $ids = collect($result->items())->pluck('id')->all();
+    expect($ids)->toBe([$first->id, $second->id, $third->id]);
+});
+
 it('sorts by price ascending', function () {
     $a = makePublishedProduct();
     $b = makePublishedProduct();
@@ -246,6 +257,16 @@ it('sorts by price ascending', function () {
 
     $ids = collect($result->items())->pluck('id')->all();
     expect($ids)->toBe([$b->id, $c->id, $a->id]);
+});
+
+it('uses the fulltext search code path when search.fulltext config is true', function () {
+    config(['product-catalog.search.fulltext' => true]);
+    makePublishedProduct(['name' => 'Kemeja Batik']);
+
+    // SQLite does not support FULLTEXT — the Throwable that propagates proves
+    // the fulltext branch (lines 132–143) was entered, not the LIKE branch.
+    expect(fn () => app(DatabaseSearchDriver::class)->paginate('kemeja', [], 15, 1))
+        ->toThrow(RuntimeException::class, 'This database engine does not support fulltext search operations.');
 });
 
 // ── get() ─────────────────────────────────────────────────────────────────────
