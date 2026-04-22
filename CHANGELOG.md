@@ -2,6 +2,18 @@
 
 All notable changes to `aliziodev/laravel-product-catalog` will be documented in this file.
 
+## [1.4.0](https://github.com/aliziodev/laravel-product-catalog/compare/v1.3.1...v1.4.0) (2026-04-22)
+
+### Features
+
+* implement core product catalog infrastructure including service provider, inventory contracts, search drivers, and controllers ([12156da](https://github.com/aliziodev/laravel-product-catalog/commit/12156daa278fff3a8b307efd4bf52e03b11b0b6c))
+* implement core product catalog service provider, controllers, and search infrastructure with configuration validation ([bcf22e1](https://github.com/aliziodev/laravel-product-catalog/commit/bcf22e1fe78858611d36c4110f8ae748593aa0c3))
+
+### Bug Fixes
+
+* implement core product catalog architecture including inventory management, search drivers, and model scopes ([6461528](https://github.com/aliziodev/laravel-product-catalog/commit/64615287530d2f248189417ed5206c18db017009))
+* implement product catalog service provider, demo seeder, and core infrastructure components ([623e972](https://github.com/aliziodev/laravel-product-catalog/commit/623e9725da7ce1ef685a412e0f2bffd8db2b5608))
+
 ## [1.3.0](https://github.com/aliziodev/laravel-product-catalog/compare/v1.2.1...v1.3.0) (2026-04-22)
 
 ### Features
