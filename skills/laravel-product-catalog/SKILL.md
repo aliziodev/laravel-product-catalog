@@ -485,6 +485,113 @@ config(['product-catalog.inventory.driver' => 'null']);
 
 ---
 
+## Query Performance
+
+### N+1 Patterns to Avoid
+
+#### Price helpers (`minPrice` / `maxPrice` / `priceRange`)
+
+Without eager loading, each call hits the DB:
+
+```php
+// ❌ N+1 — 2 queries per product (1 for minPrice, 1 for maxPrice)
+$products = Product::published()->limit(10)->get();
+foreach ($products as $p) {
+    $p->minPrice(); // SELECT MIN(price) FROM ...
+    $p->maxPrice(); // SELECT MAX(price) FROM ...
+}
+
+// ✅ 0 extra queries — in-memory collection is used
+$products = Product::published()->with('variants')->limit(10)->get();
+foreach ($products as $p) {
+    $p->minPrice();   // no DB hit
+    $p->maxPrice();   // no DB hit
+    $p->priceRange(); // no DB hit
+}
+```
+
+> The helpers detect `$this->relationLoaded('variants')` and use the
+> already-loaded collection when available.
+
+#### Inventory access per variant
+
+```php
+// ❌ N+1 — 1 query per variant (30 queries for 10 products × 3 variants)
+$products = Product::published()->with('variants')->limit(10)->get();
+foreach ($products as $p) {
+    foreach ($p->variants as $v) {
+        $_ = $v->inventoryItem; // lazy loaded
+    }
+}
+
+// ✅ 3 queries total — products + variants + inventoryItems (batch)
+$products = Product::published()->with('variants.inventoryItem')->limit(10)->get();
+foreach ($products as $p) {
+    foreach ($p->variants as $v) {
+        $_ = $v->inventoryItem; // already in memory — 0 extra queries
+    }
+}
+```
+
+#### Product detail page (show endpoint)
+
+Always include `variants.inventoryItem` — without it, every `->inventoryItem` access in your view fires a query:
+
+```php
+// ✅ Correct eager-load for a product detail page
+Product::published()
+    ->with(['brand', 'primaryCategory', 'tags', 'variants.inventoryItem', 'options.values'])
+    ->bySlug($slug)
+    ->firstOrFail();
+```
+
+### Query Budget Reference
+
+| Operation | Query count | Notes |
+|-----------|-------------|-------|
+| `Product::published()->with(['brand','primaryCategory','defaultVariant'])->paginate(15)` | ≤ 5 | COUNT + SELECT + 3 eager-load batches |
+| `Product::published()->with('variants.inventoryItem')->limit(10)->get()` | 3 | products + variants + inventoryItems |
+| `Product::published()->inStock()->paginate(15)` | 2 | COUNT + SELECT (WHERE EXISTS, no JOIN) |
+| Product detail page (all relations) | ≤ 8 | products + brand + category + tags + pivot + variants + inventoryItems + options + values |
+| `ProductSearchBuilder` with 4 filters + `paginate()` | ≤ 5 | COUNT + SELECT + ≤3 eager-load batches |
+
+### Tag Filter — Single Query
+
+Multi-tag filtering uses a single `IN (subquery)` with `GROUP BY / HAVING` — **not** N correlated `WHERE EXISTS`:
+
+```php
+// Both resolve to a single SELECT
+Product::withTag($tag->id)->get();                           // single WHERE EXISTS (1 tag)
+
+ProductSearchBuilder::query('')
+    ->withTags(['sale', 'new-arrival', 'featured'])
+    ->get(); // WHERE id IN (SELECT product_id GROUP BY … HAVING COUNT(DISTINCT tag_id) = 3)
+```
+
+### Price Sort — Documented Limitation
+
+`->sortBy('price')` adds a **scalar correlated subquery** in `ORDER BY`:
+
+```sql
+ORDER BY (SELECT MIN(price) FROM catalog_product_variants
+          WHERE product_id = catalog_products.id AND is_active = 1) ASC
+```
+
+This is evaluated once per row in the result set. Acceptable for catalogs up to ~50k products.
+For larger catalogs, add a denormalized `min_price` column to `catalog_products` and keep it
+synced via a model observer.
+
+### Database Indexes
+
+The package ships these indexes out of the box (migration `2026_04_01_000013`):
+
+| Table | Column | Index | Usage |
+|-------|--------|-------|-------|
+| `catalog_products` | `name` | `idx_catalog_products_name` | `ORDER BY name`, prefix LIKE searches |
+| `catalog_inventory_items` | `policy` | `idx_catalog_inventory_items_policy` | `inStock()` scope, `lowStock()` scope |
+
+---
+
 ## Reference Files
 
 Read these when you need deeper coverage on a topic:
