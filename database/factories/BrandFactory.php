@@ -22,7 +22,7 @@ class BrandFactory extends Factory
             'name' => $name,
             'slug' => str($name)->slug()->toString(),
             'description' => fake()->optional()->sentence(),
-            'logo_url' => fake()->optional()->imageUrl(200, 200),
+            'logo_path' => fake()->optional()->imageUrl(200, 200),
             'website_url' => fake()->optional()->url(),
         ];
     }

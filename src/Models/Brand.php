@@ -21,7 +21,7 @@ class Brand extends Model
         'name',
         'slug',
         'description',
-        'logo_url',
+        'logo_path',
         'website_url',
     ];
 

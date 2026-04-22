@@ -32,6 +32,6 @@ it('brand response contains expected fields', function () {
     $this->getJson('/catalog/brands')
         ->assertOk()
         ->assertJsonStructure([
-            'data' => [['id', 'name', 'slug', 'description', 'logo_url', 'website_url']],
+            'data' => [['id', 'name', 'slug', 'description', 'logo_path', 'website_url']],
         ]);
 });
