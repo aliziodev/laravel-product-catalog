@@ -2,6 +2,12 @@
 
 All notable changes to `aliziodev/laravel-product-catalog` will be documented in this file.
 
+## [1.5.0](https://github.com/aliziodev/laravel-product-catalog/compare/v1.4.1...v1.5.0) (2026-04-22)
+
+### Features
+
+* implement product catalog core with database schema, models, search driver, and performance benchmarks ([7596b9d](https://github.com/aliziodev/laravel-product-catalog/commit/7596b9dedcd34eb880dd1517153a50b1ece7befb))
+
 ## [1.4.1](https://github.com/aliziodev/laravel-product-catalog/compare/v1.4.0...v1.4.1) (2026-04-22)
 
 ### Bug Fixes
