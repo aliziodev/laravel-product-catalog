@@ -27,6 +27,7 @@ A professional, variant-centric product catalog package for Laravel 12+. Designe
   - [Inventory](#inventory)
   - [Taxonomy](#taxonomy)
   - [Querying](#querying)
+- [Product Specifications](#product-specifications)
 - [Slug Routing](#slug-routing)
 - [API Resources](#api-resources)
 - [Events](#events)
@@ -455,6 +456,78 @@ use Aliziodev\ProductCatalog\Models\InventoryItem;
 
 InventoryItem::lowStock()->with('variant.product')->get();
 ```
+
+---
+
+## Product Specifications
+
+Both `Product` and `ProductVariant` have a `meta` JSON column for storing arbitrary key-value data — including product specifications.
+
+```php
+$product = Product::create([
+    'name' => 'Kaos Polo',
+    'meta' => [
+        'material'    => 'Katun 100%',
+        'origin'      => 'Indonesia',
+        'care'        => 'Cuci maks 30°C',
+        'weight_gram' => 200,
+    ],
+]);
+
+$product->meta['material']; // 'Katun 100%'
+```
+
+**Why there is no dedicated `product_attributes` table in this package**
+
+A filterable attribute system is a common need — but not a *universal* one:
+
+| Domain | Typical attributes |
+|---|---|
+| Fashion | Material, Fit, Care instructions |
+| Electronics | Wattage, Resolution, Storage capacity |
+| Books | Genre, Language, Page count |
+| Internal catalog | May not need spec filtering at all |
+
+Because attribute schemas differ across domains, a single built-in implementation would either be too opinionated (forcing a schema that doesn't fit your domain) or too generic (adding migration weight for every consumer, even those that don't need it). The `meta` JSON column is the right default for specs that are display-only.
+
+**When to add filterable attributes at the application level**
+
+If your application needs to filter or search products by specification value, add a `product_attributes` table in your own migration:
+
+```php
+Schema::create('product_attributes', function (Blueprint $table) {
+    $table->id();
+    $table->unsignedBigInteger('product_id'); // references catalog_products.id
+    $table->string('key');
+    $table->string('value');
+    $table->index(['product_id', 'key']);
+});
+```
+
+Extend the `Product` model in your application:
+
+```php
+// app/Models/Product.php
+class Product extends BaseProduct
+{
+    public function attributes(): HasMany
+    {
+        return $this->hasMany(ProductAttribute::class);
+    }
+}
+```
+
+Filter by attribute:
+
+```php
+Product::published()
+    ->whereHas('attributes', fn ($q) =>
+        $q->where('key', 'material')->where('value', 'Katun')
+    )
+    ->get();
+```
+
+This keeps the package lean and gives your application full control over the attribute schema, indexing strategy, and query patterns.
 
 ---
 
