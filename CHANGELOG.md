@@ -2,6 +2,12 @@
 
 All notable changes to `aliziodev/laravel-product-catalog` will be documented in this file.
 
+## [1.6.0](https://github.com/aliziodev/laravel-product-catalog/compare/v1.5.0...v1.6.0) (2026-04-26)
+
+### Features
+
+* add inventory reservation lifecycle and private product status ([5348874](https://github.com/aliziodev/laravel-product-catalog/commit/5348874acca10966b0a349ec1d694243ea52aa73))
+
 ## [1.5.0](https://github.com/aliziodev/laravel-product-catalog/compare/v1.4.1...v1.5.0) (2026-04-22)
 
 ### Features
