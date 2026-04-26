@@ -24,4 +24,11 @@ class InventoryException extends RuntimeException
     {
         return new static('Stock quantity cannot be set to a negative value.');
     }
+
+    public static function insufficientReservation(int $requested, int $reserved): static
+    {
+        return new static(
+            "Insufficient reservation: requested {$requested} to commit, only {$reserved} reserved."
+        );
+    }
 }

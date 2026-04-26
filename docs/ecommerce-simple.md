@@ -10,7 +10,7 @@ Minimal end-to-end ecommerce setup — from catalog to order placement — using
 - 3-state order flow: **pending → paid → shipped** (or cancelled)
 - Soft-reserve on order creation, actual deduction on payment confirmation
 - Stock restoration on cancellation or payment failure
-- Movement history for audit trail
+- Full movement history for audit trail (every operation recorded)
 
 ---
 
@@ -31,8 +31,8 @@ payment    payment
  failed    confirmed
    │         │
    ▼         ▼
-release($qty)        adjust(-$qty)    ← actual deduction
-status: cancelled    status: paid        quantity decreases
+release($qty)        commit($qty)    ← actual deduction
+status: cancelled    status: paid       quantity & reserved both decrease
                           │
                           ▼
                     shipped → status: completed
@@ -72,9 +72,11 @@ Schema::create('order_items', function (Blueprint $table) {
 
 ## 2. State 1 — Order Created (Pending Payment)
 
-Validate stock, create the order, and **soft-reserve** quantities. The actual `quantity` column is not touched yet — only `reserved_quantity` increases.
+Validate stock, create the order, and **soft-reserve** quantities via the inventory driver.
+`reserve()` increments `reserved_quantity` without touching `quantity`, and writes a movement record for the audit trail.
 
 ```php
+use Aliziodev\ProductCatalog\Enums\InventoryReason;
 use Aliziodev\ProductCatalog\Facades\ProductCatalog;
 use Aliziodev\ProductCatalog\Models\ProductVariant;
 use Illuminate\Support\Facades\DB;
@@ -103,7 +105,7 @@ class CreateOrderAction
                 'total'   => 0,
             ]);
 
-            // 3. Create line items and soft-reserve stock
+            // 3. Create line items and soft-reserve stock via the driver
             foreach ($items as $item) {
                 $variant = ProductVariant::with(['product', 'inventoryItem', 'optionValues'])->find($item['variant_id']);
                 $lineTotal = (float) $variant->price * $item['quantity'];
@@ -117,8 +119,8 @@ class CreateOrderAction
                     'unit_price'   => $variant->price,         // snapshot price at purchase moment
                 ]);
 
-                // Soft-reserve: reserved_quantity++ but quantity unchanged
-                $variant->inventoryItem->reserve($item['quantity']);
+                // Soft-reserve via driver: records movement + fires InventoryReserved event
+                $inventory->reserve($variant, $item['quantity'], InventoryReason::ORDER_PLACED, $order);
 
                 $total += $lineTotal;
             }
@@ -135,9 +137,12 @@ class CreateOrderAction
 
 ## 3. State 2A — Payment Confirmed (Order Paid)
 
-When payment succeeds, perform the actual stock deduction. The reservation is converted to a real deduction.
+When payment succeeds, commit the reservation. `commit()` decrements both `quantity` and
+`reserved_quantity` atomically, records a `Deduction` movement, and fires `InventoryAdjusted`.
 
 ```php
+use Aliziodev\ProductCatalog\Enums\InventoryReason;
+
 class ConfirmPaymentAction
 {
     public function execute(Order $order): void
@@ -150,17 +155,14 @@ class ConfirmPaymentAction
             $inventory = ProductCatalog::inventory();
 
             foreach ($order->items as $item) {
-                $variant = ProductVariant::with('inventoryItem')->find($item->variant_id);
+                $variant = ProductVariant::find($item->variant_id);
 
                 if (! $variant) {
                     continue;
                 }
 
-                // Release the soft-reserve first
-                $variant->inventoryItem->release($item->quantity);
-
-                // Then perform the actual stock deduction with audit trail
-                $inventory->adjust($variant, -$item->quantity, 'order_paid', $order);
+                // Converts reservation to permanent deduction — single atomic operation
+                $inventory->commit($variant, $item->quantity, InventoryReason::ORDER_FULFILLED, $order);
             }
 
             $order->update(['status' => 'paid']);
@@ -174,8 +176,11 @@ class ConfirmPaymentAction
 ## 4. State 2B — Payment Failed or Order Cancelled
 
 Release the soft-reserve. `quantity` stays the same — only `reserved_quantity` decreases back.
+If the order was already paid (stock deducted), restock via `adjust()`.
 
 ```php
+use Aliziodev\ProductCatalog\Enums\InventoryReason;
+
 class CancelOrderAction
 {
     public function execute(Order $order): void
@@ -185,24 +190,21 @@ class CancelOrderAction
         }
 
         DB::transaction(function () use ($order) {
-            foreach ($order->items as $item) {
-                $variant = ProductVariant::with('inventoryItem')->find($item->variant_id);
+            $inventory = ProductCatalog::inventory();
 
-                if (! $variant?->inventoryItem) {
+            foreach ($order->items as $item) {
+                $variant = ProductVariant::find($item->variant_id);
+
+                if (! $variant) {
                     continue;
                 }
 
                 if ($order->status === 'pending') {
-                    // Payment never went through — just release the reservation
-                    $variant->inventoryItem->release($item->quantity);
+                    // Payment never went through — release the reservation
+                    $inventory->release($variant, $item->quantity, InventoryReason::ORDER_CANCELLED, $order);
                 } else {
-                    // Order was already paid and stock was deducted — restock it
-                    ProductCatalog::inventory()->adjust(
-                        $variant,
-                        $item->quantity,
-                        'order_cancelled',
-                        $order
-                    );
+                    // Order was paid and stock was committed — restock it
+                    $inventory->adjust($variant, $item->quantity, InventoryReason::RETURN_ITEM, $order);
                 }
             }
 
@@ -217,6 +219,8 @@ class CancelOrderAction
 ## 5. Restock After Return
 
 ```php
+use Aliziodev\ProductCatalog\Enums\InventoryReason;
+
 class ProcessReturnAction
 {
     public function execute(Order $order, int $variantId, int $qty): void
@@ -226,7 +230,7 @@ class ProcessReturnAction
         ProductCatalog::inventory()->adjust(
             $variant,
             $qty,
-            'customer_return',
+            InventoryReason::RETURN_ITEM,
             $order
         );
     }
@@ -237,9 +241,11 @@ class ProcessReturnAction
 
 ## 6. View Movement History
 
-Every `adjust()` and `set()` via `DatabaseInventoryProvider` writes an `InventoryMovement` record. `reserve()` and `release()` are lightweight column increments — they do **not** write movements (they are transient, not permanent stock changes).
+Every write operation via `DatabaseInventoryProvider` appends an `InventoryMovement` record.
+This includes `adjust()`, `set()`, `reserve()`, `release()`, and `commit()`.
 
 ```php
+use Aliziodev\ProductCatalog\Enums\MovementType;
 use Aliziodev\ProductCatalog\Models\InventoryMovement;
 
 $movements = InventoryMovement::where('variant_id', $variant->id)
@@ -247,9 +253,18 @@ $movements = InventoryMovement::where('variant_id', $variant->id)
     ->get();
 
 foreach ($movements as $m) {
-    // $m->delta         — positive (restock) or negative (deduction)
-    // $m->reason        — 'order_paid', 'order_cancelled', 'customer_return', etc.
-    // $m->referenceable — polymorphic: the Order model (if passed as $reference)
+    // $m->type             — MovementType enum: Restock, Deduction, Reserve, Release, etc.
+    // $m->delta            — positive (restock/reserve) or negative (deduction/release)
+    // $m->quantity_before  — total stock before this movement
+    // $m->quantity_after   — total stock after this movement
+    // $m->reserved_before  — reserved qty before (null for non-reservation movements)
+    // $m->reserved_after   — reserved qty after  (null for non-reservation movements)
+    // $m->reason           — InventoryReason constant string
+    // $m->referenceable    — polymorphic: the Order model (if passed as $reference)
+
+    // Helpers
+    $m->isReservationMovement();  // true for Reserve and Release types
+    $m->affectsReservation();     // true when reserved_before is set
 }
 ```
 
@@ -274,10 +289,9 @@ $order->items->sum(fn ($i) => ProductVariant::find($i->variant_id)->price * $i->
 | Method | When to use |
 |---|---|
 | `$inventory->canFulfill($variant, $qty)` | Before creating the order — pre-purchase check |
-| `$item->reserve($qty)` | Order created (pending payment) — soft-reserve |
-| `$item->release($qty)` | Payment failed or order cancelled while pending |
-| `$inventory->adjust($variant, -$qty, 'order_paid', $order)` | Payment confirmed — actual deduction |
-| `$inventory->adjust($variant, +$qty, 'order_cancelled', $order)` | Cancelled after payment — restock |
-| `$inventory->adjust($variant, +$qty, 'customer_return', $order)` | Return after shipment |
+| `$inventory->reserve($variant, $qty, $reason, $order)` | Order created (pending payment) — soft-reserve with audit trail |
+| `$inventory->release($variant, $qty, $reason, $order)` | Payment failed or order cancelled while pending |
+| `$inventory->commit($variant, $qty, $reason, $order)` | Payment confirmed — converts reservation to permanent deduction |
+| `$inventory->adjust($variant, +$qty, $reason, $order)` | Cancelled after payment (already committed) — restock |
 | `$variant->displayName()` | Snapshot option label ("Red / 42") at order time |
-| `InventoryMovement` | Append-only audit log written by `adjust()` and `set()` |
+| `InventoryMovement` | Append-only audit log written by all write operations |

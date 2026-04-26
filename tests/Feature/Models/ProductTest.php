@@ -66,6 +66,51 @@ it('scopes published products correctly', function () {
     expect(Product::published()->count())->toBe(1);
 });
 
+it('transitions to private status', function () {
+    $product = Product::factory()->create();
+    $product->makePrivate();
+
+    expect($product->fresh()->isPrivate())->toBeTrue()
+        ->and($product->fresh()->status)->toBe(ProductStatus::Private)
+        ->and($product->fresh()->published_at)->not->toBeNull();
+});
+
+it('does not overwrite published_at when making private after publish', function () {
+    $product = Product::factory()->published()->create();
+    $first = $product->fresh()->published_at;
+
+    $product->makePrivate();
+
+    expect($product->fresh()->published_at->eq($first))->toBeTrue();
+});
+
+it('isLive returns true for published and private products', function () {
+    $published = Product::factory()->published()->create();
+    $private = Product::factory()->create(['status' => ProductStatus::Private]);
+    $draft = Product::factory()->draft()->create();
+
+    expect($published->isLive())->toBeTrue()
+        ->and($private->isLive())->toBeTrue()
+        ->and($draft->isLive())->toBeFalse();
+});
+
+it('scopePrivate returns only private products', function () {
+    Product::factory()->published()->create();
+    Product::factory()->create(['status' => ProductStatus::Private]);
+    Product::factory()->draft()->create();
+
+    expect(Product::private()->count())->toBe(1);
+});
+
+it('scopeVisible returns published and private products', function () {
+    Product::factory()->published()->create();
+    Product::factory()->create(['status' => ProductStatus::Private]);
+    Product::factory()->draft()->create();
+    Product::factory()->archived()->create();
+
+    expect(Product::visible()->count())->toBe(2);
+});
+
 it('knows when it is a variable product', function () {
     $simple = Product::factory()->create(['type' => ProductType::Simple]);
     $variable = Product::factory()->variable()->create();

@@ -74,8 +74,11 @@ A professional, variant-centric product catalog package for Laravel 12+. Designe
 **Inventory**
 - Three policies per variant: `track` (deduct stock), `allow` (always available), `deny` (unavailable)
 - Soft-reserve (`reserved_quantity`) to hold stock while awaiting payment
+- Full reservation lifecycle via the driver: `reserve()` → `release()` / `commit()`
 - Low-stock threshold and alerts
-- Append-only movement history (audit trail for every stock change)
+- Append-only movement history (audit trail for every stock change, including reservations)
+- `MovementType` enum: `Restock`, `Deduction`, `Adjustment`, `Set`, `Reserve`, `Release`
+- `InventoryReason` constants for consistent audit trail reason strings
 - Driver pattern — swap the stock system without changing application code
 - Built-in: `database` (stock in DB) and `null` (always in stock, for digital products)
 
@@ -298,6 +301,7 @@ $variant->discountPercentage(); // 15 (int)
 
 ```php
 use Aliziodev\ProductCatalog\Facades\ProductCatalog;
+use Aliziodev\ProductCatalog\Enums\InventoryReason;
 
 $inventory = ProductCatalog::inventory(); // resolves configured driver
 
@@ -305,10 +309,10 @@ $inventory = ProductCatalog::inventory(); // resolves configured driver
 $inventory->set($variant, 50);
 
 // Adjust (positive = restock, negative = deduct)
-$inventory->adjust($variant, -5, 'sale', $order); // $order is optional reference model
+$inventory->adjust($variant, -5, InventoryReason::SALE, $order); // $order is optional reference model
 
 // Query
-$inventory->getQuantity($variant);        // 45
+$inventory->getQuantity($variant);        // available quantity (total − reserved)
 $inventory->isInStock($variant);          // true
 $inventory->canFulfill($variant, 10);     // true
 
@@ -321,9 +325,80 @@ $inventory->canFulfill($variant, 10);     // true
 // Direct model helpers (InventoryItem)
 $item = $variant->inventoryItem;
 $item->availableQuantity();  // quantity - reserved_quantity
-$item->reserve(3);           // increment reserved_quantity
-$item->release(3);           // decrement reserved_quantity
+$item->reserve(3);           // increment reserved_quantity (no audit trail)
+$item->release(3);           // decrement reserved_quantity (no audit trail)
 $item->isLowStock();         // true if availableQuantity <= low_stock_threshold
+```
+
+### Reservation Lifecycle
+
+Use the inventory driver for reserve/release/commit — these methods record movements and fire events.
+
+```php
+use Aliziodev\ProductCatalog\Facades\ProductCatalog;
+use Aliziodev\ProductCatalog\Enums\InventoryReason;
+
+$inventory = ProductCatalog::inventory();
+
+// 1. Customer places order — hold stock
+$inventory->reserve($variant, 3, InventoryReason::ORDER_PLACED, $order);
+// reserved_quantity: +3, total quantity: unchanged, available: −3
+
+// 2a. Order cancelled — release the hold
+$inventory->release($variant, 3, InventoryReason::ORDER_CANCELLED, $order);
+// reserved_quantity: −3, total quantity: unchanged, available: +3
+
+// 2b. Order fulfilled — convert reservation to permanent deduction
+$inventory->commit($variant, 3, InventoryReason::ORDER_FULFILLED, $order);
+// reserved_quantity: −3, total quantity: −3, available: unchanged
+
+// reserve() throws InventoryException when available stock < requested
+// commit() throws InventoryException when reserved_quantity < requested
+```
+
+### InventoryReason
+
+Use `InventoryReason` constants to keep reason strings consistent across your application.
+
+```php
+use Aliziodev\ProductCatalog\Enums\InventoryReason;
+
+// Restock
+InventoryReason::PURCHASE        // 'purchase'
+InventoryReason::RETURN_ITEM     // 'return'
+
+// Deduction
+InventoryReason::SALE            // 'sale'
+InventoryReason::DAMAGE          // 'damage'
+InventoryReason::EXPIRY          // 'expiry'
+
+// Adjustment / Set
+InventoryReason::CORRECTION      // 'correction'
+InventoryReason::STOCKTAKE       // 'stocktake'
+
+// Reserve
+InventoryReason::ORDER_PLACED    // 'order_placed'
+InventoryReason::CART_HOLD       // 'cart_hold'
+
+// Release
+InventoryReason::ORDER_CANCELLED // 'order_cancelled'
+InventoryReason::CART_RELEASED   // 'cart_released'
+InventoryReason::TIMEOUT         // 'timeout'
+
+// Commit
+InventoryReason::ORDER_FULFILLED // 'order_fulfilled'
+```
+
+Add your own reason strings to `config/product-catalog.php`:
+
+```php
+'inventory' => [
+    'movement_reasons' => [
+        // built-in reasons ...
+        'promotion',     // custom reason for your app
+        'gift',
+    ],
+],
 ```
 
 ### Taxonomy
@@ -530,16 +605,34 @@ Response shape:
 |---|---|
 | `ProductPublished` | `$product->publish()` |
 | `ProductArchived` | `$product->archive()` |
-| `InventoryAdjusted` | Stock changes via `DatabaseInventoryProvider` |
+| `InventoryAdjusted` | `adjust()`, `set()`, or `commit()` changes total quantity |
+| `InventoryReserved` | `reserve()` or `release()` changes `reserved_quantity` |
 
 ```php
 use Aliziodev\ProductCatalog\Events\ProductPublished;
+use Aliziodev\ProductCatalog\Events\InventoryReserved;
 
 class SendNewProductNotification
 {
     public function handle(ProductPublished $event): void
     {
         // $event->product
+    }
+}
+
+class HandleStockReservation
+{
+    public function handle(InventoryReserved $event): void
+    {
+        // $event->variant
+        // $event->type          — MovementType::Reserve or MovementType::Release
+        // $event->quantity      — positive for reserve, negative for release
+        // $event->reservedBefore
+        // $event->reservedAfter
+        // $event->reason
+        // $event->movement      — the InventoryMovement record
+        // $event->isReserve()   — true when type is Reserve
+        // $event->isRelease()   — true when type is Release
     }
 }
 ```
@@ -719,7 +812,7 @@ class AppInventoryProvider implements InventoryProviderInterface
         $newQty = $record->quantity + $delta;
 
         if ($newQty < 0) {
-            throw InventoryException::insufficientStock($variant, abs($delta));
+            throw InventoryException::insufficientStock(abs($delta), $record->quantity);
         }
 
         $record->update(['quantity' => $newQty]);
@@ -735,6 +828,33 @@ class AppInventoryProvider implements InventoryProviderInterface
             ['sku'      => $variant->sku],
             ['quantity' => max(0, $quantity)]
         );
+    }
+
+    public function reserve(
+        ProductVariant $variant,
+        int $quantity,
+        string $reason = '',
+        ?Model $reference = null,
+    ): void {
+        // implement reservation against your external system
+    }
+
+    public function release(
+        ProductVariant $variant,
+        int $quantity,
+        string $reason = '',
+        ?Model $reference = null,
+    ): void {
+        // implement release against your external system
+    }
+
+    public function commit(
+        ProductVariant $variant,
+        int $quantity,
+        string $reason = '',
+        ?Model $reference = null,
+    ): void {
+        // implement commit (reservation → permanent deduction) against your external system
     }
 }
 ```

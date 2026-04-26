@@ -41,7 +41,8 @@ php artisan vendor:publish --tag=product-catalog-config  # optional
 'model'       => \App\Models\Product::class, // override when extending the base Product model
 'table_prefix' => env('PRODUCT_CATALOG_TABLE_PREFIX', 'catalog_'),  // set BEFORE migrate
 'inventory' => [
-    'driver' => env('PRODUCT_CATALOG_INVENTORY_DRIVER', 'database'), // 'database' | 'null' | custom
+    'driver'           => env('PRODUCT_CATALOG_INVENTORY_DRIVER', 'database'), // 'database' | 'null' | custom
+    'movement_reasons' => [],  // add app-specific reason strings here
 ],
 'slug' => [
     'auto_generate'    => true,
@@ -77,8 +78,9 @@ use Aliziodev\ProductCatalog\Models\Brand;
 use Aliziodev\ProductCatalog\Models\Category;
 use Aliziodev\ProductCatalog\Models\Tag;
 use Aliziodev\ProductCatalog\Enums\ProductType;       // Simple | Variable
-use Aliziodev\ProductCatalog\Enums\ProductStatus;     // Draft | Published | Archived
+use Aliziodev\ProductCatalog\Enums\ProductStatus;     // Draft | Published | Private | Archived
 use Aliziodev\ProductCatalog\Enums\InventoryPolicy;   // Track | Allow | Deny
+use Aliziodev\ProductCatalog\Enums\InventoryReason;   // preset reason constants for audit trail
 use Aliziodev\ProductCatalog\Facades\ProductCatalog;
 ```
 
@@ -110,15 +112,21 @@ $product = Product::create([
 ### Lifecycle
 
 ```php
-$product->publish();    // draft → published (fires ProductPublished event)
-$product->unpublish();  // published → draft
-$product->archive();    // → archived (fires ProductArchived event)
+$product->publish();      // draft → published (fires ProductPublished event)
+$product->unpublish();    // published → draft
+$product->archive();      // → archived (fires ProductArchived event)
+$product->makePrivate();  // → private (live but not publicly listed)
 
 $product->isPublished();
 $product->isDraft();
 $product->isArchived();
-$product->isSimple();
-$product->isVariable();
+$product->isPrivate();
+$product->isLive();       // true for Published OR Private
+
+// Status scopes
+Product::published()->get();  // public storefront
+Product::visible()->get();    // Published + Private (authenticated storefront)
+Product::private()->get();    // Private only
 ```
 
 ---
@@ -199,37 +207,47 @@ $variant->inventoryItem()->create([
 ```php
 $inventory = ProductCatalog::inventory(); // resolves the active driver
 
-$inventory->set($variant, 50);                             // set absolute quantity
-$inventory->adjust($variant, -5, 'sale', $order);         // adjust (+ restock, - deduct)
-$inventory->getQuantity($variant);                         // → 45
-$inventory->isInStock($variant);                           // → true
-$inventory->canFulfill($variant, 10);                      // → true
+// Read
+$inventory->getQuantity($variant);         // available qty (total − reserved)
+$inventory->isInStock($variant);           // bool
+$inventory->canFulfill($variant, 10);      // bool
+
+// Write (all run inside DB::transaction + lockForUpdate — race-condition safe)
+$inventory->set($variant, 50, InventoryReason::STOCKTAKE);
+$inventory->adjust($variant, -5, InventoryReason::SALE, $order);    // − deduct / + restock
+$inventory->reserve($variant, 5, InventoryReason::ORDER_PLACED, $order);   // soft-hold
+$inventory->release($variant, 5, InventoryReason::ORDER_CANCELLED, $order); // undo reserve
+$inventory->commit($variant, 5, InventoryReason::ORDER_FULFILLED, $order);  // reserve → deduct
 ```
 
-### Direct Operations via InventoryItem
+### Reservation Lifecycle
+
+```
+reserve()  →  release()   (order cancelled / cart expired)
+reserve()  →  commit()    (order fulfilled — quantity deducted permanently)
+```
+
+| Operation | quantity | reserved_quantity | available |
+|---|---|---|---|
+| `reserve(5)` | unchanged | +5 | −5 |
+| `release(5)` | unchanged | −5 | +5 |
+| `commit(5)` | −5 | −5 | unchanged |
+| `adjust(-5)` | −5 | unchanged | −5 |
+
+### InventoryItem Helpers (read-only)
 
 ```php
 $item = $variant->inventoryItem;
 
 $item->availableQuantity();   // quantity - reserved_quantity
-$item->reserve($qty);         // hold stock while awaiting payment
-$item->release($qty);         // return reserved when order is cancelled
-$item->isLowStock();          // true if availableQuantity <= low_stock_threshold
-```
-
-### 3-State Order Flow (Reserve → Adjust → Release)
-
-```
-Order created  → $item->reserve($qty)                // stock on hold
-Payment OK     → $inventory->adjust($variant, -$qty) // actual deduction
-Payment FAIL   → $item->release($qty)                // return the hold
+$item->isLowStock();          // availableQuantity <= low_stock_threshold
 ```
 
 ### Built-in Inventory Drivers
 
 | Driver | When to use |
 |--------|-------------|
-| `database` (default) | Stock tracked in DB (`catalog_inventory_items`) |
+| `database` (default) | Stock tracked in DB with pessimistic locking — safe under concurrent requests |
 | `null` | Always in stock, no DB writes — for unlimited/digital across the whole app |
 
 > **null driver vs InventoryPolicy::Allow:**
@@ -393,17 +411,26 @@ class CatalogProductResource extends ProductResource
 
 ## Events
 
-| Event | When |
-|-------|------|
-| `ProductPublished` | `$product->publish()` |
-| `ProductArchived` | `$product->archive()` |
-| `InventoryAdjusted` | Any stock change via `DatabaseInventoryProvider` |
+| Event | When | Key payload |
+|-------|------|-------------|
+| `ProductPublished` | `$product->publish()` | `$event->product` |
+| `ProductArchived` | `$product->archive()` | `$event->product` |
+| `InventoryAdjusted` | `adjust()`, `set()`, `commit()` | `variant`, `previousQuantity`, `newQuantity`, `reason`, `movement` |
+| `InventoryReserved` | `reserve()`, `release()` | `variant`, `type` (MovementType), `quantity`, `reservedBefore`, `reservedAfter`, `movement`; helpers: `isReserve()`, `isRelease()` |
+| `InventoryLowStock` | When available crosses `low_stock_threshold` | `variant`, `availableQuantity`, `threshold`, `movement` |
+| `InventoryOutOfStock` | When available drops to 0 | `variant`, `movement` |
+
+> `InventoryLowStock` and `InventoryOutOfStock` fire **on crossing** only, not on every subsequent operation below the threshold. `InventoryOutOfStock` takes precedence — both never fire for the same operation.
 
 ```php
 use Aliziodev\ProductCatalog\Events\ProductPublished;
+use Aliziodev\ProductCatalog\Events\InventoryLowStock;
+use Aliziodev\ProductCatalog\Events\InventoryOutOfStock;
 
 // Register in EventServiceProvider
-ProductPublished::class => [SendNewProductNotification::class],
+ProductPublished::class  => [SendNewProductNotification::class],
+InventoryLowStock::class => [NotifyPurchasingTeamListener::class],
+InventoryOutOfStock::class => [DisableVariantListener::class],
 ```
 
 ---
@@ -422,6 +449,9 @@ class AppInventoryProvider implements InventoryProviderInterface
     public function canFulfill(ProductVariant $variant, int $quantity): bool { ... }
     public function adjust(ProductVariant $variant, int $delta, string $reason = '', ?Model $reference = null): void { ... }
     public function set(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void { ... }
+    public function reserve(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void { ... }
+    public function release(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void { ... }
+    public function commit(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void { ... }
 }
 ```
 

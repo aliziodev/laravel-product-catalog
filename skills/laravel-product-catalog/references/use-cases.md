@@ -136,15 +136,20 @@ $cartItem = [
 ### 3-State Inventory Flow
 
 ```
-Order CREATED  → $item->reserve($qty)                              // soft-hold
-Payment OK     → $inventory->adjust($variant, -$qty, 'paid', $order) // actual deduction
-Payment FAIL   → $item->release($qty)                              // return the hold
+Order CREATED  → $inventory->reserve($variant, $qty, InventoryReason::ORDER_PLACED, $order)
+Payment OK     → $inventory->commit($variant, $qty, InventoryReason::ORDER_FULFILLED, $order)
+Payment FAIL   → $inventory->release($variant, $qty, InventoryReason::ORDER_CANCELLED, $order)
 Order SHIPPED  → (no further inventory change)
 ```
+
+> All driver write methods run inside `DB::transaction + lockForUpdate` — no race condition.
+> See `docs/ecommerce-simple.md` for the full end-to-end guide.
 
 ### CreateOrderAction
 
 ```php
+use Aliziodev\ProductCatalog\Enums\InventoryReason;
+
 class CreateOrderAction
 {
     public function execute(array $items, int $userId): Order
@@ -164,9 +169,9 @@ class CreateOrderAction
             $order = Order::create(['user_id' => $userId, 'status' => 'pending', 'total' => 0]);
             $total = 0;
 
-            // 3. Create order items + reserve stock
+            // 3. Create order items + soft-reserve via driver (records movement + fires event)
             foreach ($items as $item) {
-                $variant = ProductVariant::with('inventoryItem')->find($item['variant_id']);
+                $variant = ProductVariant::with(['product', 'inventoryItem', 'optionValues'])->find($item['variant_id']);
                 $order->items()->create([
                     'variant_id'   => $variant->id,
                     'sku'          => $variant->sku,
@@ -175,7 +180,7 @@ class CreateOrderAction
                     'quantity'     => $item['quantity'],
                     'unit_price'   => $variant->price, // snapshot at order time
                 ]);
-                $variant->inventoryItem->reserve($item['quantity']);
+                $inventory->reserve($variant, $item['quantity'], InventoryReason::ORDER_PLACED, $order);
                 $total += $variant->price * $item['quantity'];
             }
 
@@ -193,13 +198,15 @@ class PaymentConfirmedAction
 {
     public function execute(Order $order): void
     {
+        if ($order->status !== 'pending') return;
+
         DB::transaction(function () use ($order) {
             $inventory = ProductCatalog::inventory();
 
             foreach ($order->items as $item) {
-                $variant = ProductVariant::with('inventoryItem')->find($item->variant_id);
-                $variant->inventoryItem->release($item->quantity); // return reserved
-                $inventory->adjust($variant, -$item->quantity, 'order_paid', $order); // actual deduct
+                $variant = ProductVariant::find($item->variant_id);
+                // commit = decrement both quantity AND reserved_quantity atomically
+                $inventory->commit($variant, $item->quantity, InventoryReason::ORDER_FULFILLED, $order);
             }
 
             $order->update(['status' => 'paid']);
@@ -215,11 +222,22 @@ class OrderCancelledAction
 {
     public function execute(Order $order): void
     {
+        if (! in_array($order->status, ['pending', 'paid'])) return;
+
         DB::transaction(function () use ($order) {
+            $inventory = ProductCatalog::inventory();
+
             foreach ($order->items as $item) {
-                $variant = ProductVariant::with('inventoryItem')->find($item->variant_id);
-                $variant->inventoryItem->release($item->quantity);
+                $variant = ProductVariant::find($item->variant_id);
+
+                if ($order->status === 'pending') {
+                    $inventory->release($variant, $item->quantity, InventoryReason::ORDER_CANCELLED, $order);
+                } else {
+                    // Already paid (stock committed) — restock it
+                    $inventory->adjust($variant, $item->quantity, InventoryReason::RETURN_ITEM, $order);
+                }
             }
+
             $order->update(['status' => 'cancelled']);
         });
     }

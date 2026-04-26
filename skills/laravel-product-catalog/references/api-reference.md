@@ -11,6 +11,8 @@ Quick lookup for all scopes, methods, enums, events, exceptions, and DB tables.
 | `Product::published()` | Status = published |
 | `Product::draft()` | Status = draft |
 | `Product::archived()` | Status = archived |
+| `Product::private()` | Status = private |
+| `Product::visible()` | Status = published OR private (authenticated storefronts) |
 | `Product::inStock()` | Has at least one purchasable active variant (requires inventoryItem row!) |
 | `Product::search($term)` | Local Eloquent scope search: name, code, short_description, variant SKUs |
 | `Product::forBrand($brand)` | Filter by brand model instance |
@@ -21,12 +23,15 @@ Quick lookup for all scopes, methods, enums, events, exceptions, and DB tables.
 
 | Method | Return | Description |
 |--------|--------|-------------|
-| `$product->publish()` | void | draft → published |
+| `$product->publish()` | void | draft → published; fires `ProductPublished` |
 | `$product->unpublish()` | void | published → draft |
-| `$product->archive()` | void | → archived |
+| `$product->archive()` | void | → archived; fires `ProductArchived` |
+| `$product->makePrivate()` | void | → private (live but not publicly listed) |
 | `$product->isPublished()` | bool | |
 | `$product->isDraft()` | bool | |
 | `$product->isArchived()` | bool | |
+| `$product->isPrivate()` | bool | |
+| `$product->isLive()` | bool | true for Published OR Private |
 | `$product->isSimple()` | bool | type = Simple |
 | `$product->isVariable()` | bool | type = Variable |
 | `$product->priceRange()` | `['min'=>float,'max'=>float]\|null` | Price range from active variants |
@@ -85,11 +90,17 @@ $variant->movements()         // HasMany InventoryMovement
 ```php
 $inv = ProductCatalog::inventory();  // resolves the active driver
 
-$inv->getQuantity($variant)                           // int
-$inv->isInStock($variant)                             // bool
-$inv->canFulfill($variant, $qty)                      // bool
-$inv->adjust($variant, $delta, $reason, $reference)   // void
-$inv->set($variant, $qty, $reason, $reference)        // void
+// Read
+$inv->getQuantity($variant)                                     // int — available (total − reserved)
+$inv->isInStock($variant)                                       // bool
+$inv->canFulfill($variant, $qty)                                // bool
+
+// Write — all run inside DB::transaction + lockForUpdate (race-condition safe)
+$inv->adjust($variant, $delta, $reason, $reference)             // void — + restock, − deduct
+$inv->set($variant, $qty, $reason, $reference)                  // void — absolute quantity
+$inv->reserve($variant, $qty, $reason, $reference)              // void — soft-hold (reserved_quantity++)
+$inv->release($variant, $qty, $reason, $reference)              // void — undo reserve (reserved_quantity--)
+$inv->commit($variant, $qty, $reason, $reference)               // void — reservation → permanent deduction
 
 ProductCatalog::extend($name, $resolver)  // register a custom driver
 ```
@@ -140,9 +151,15 @@ ProductType::Variable  // product with multiple variants
 
 ### ProductStatus
 ```php
-ProductStatus::Draft
-ProductStatus::Published
-ProductStatus::Archived
+ProductStatus::Draft       // not visible
+ProductStatus::Published   // public; isLive() = true, isPublic() = true
+ProductStatus::Private     // live but not listed; isLive() = true, isPublic() = false
+ProductStatus::Archived    // not visible
+
+// Helpers on the enum
+$status->isPublic()  // true only for Published
+$status->isLive()    // true for Published OR Private
+$status->label()     // 'Draft' | 'Published' | 'Private' | 'Archived'
 ```
 
 ### InventoryPolicy
@@ -154,22 +171,57 @@ InventoryPolicy::Deny    // always out of stock
 
 ### MovementType
 ```php
-MovementType::Adjustment
-MovementType::Sale
-MovementType::Return
-MovementType::Restock
-// (see enum for full list)
+MovementType::Restock    // quantity increased (purchase, return)
+MovementType::Deduction  // quantity decreased (sale, damage, commit)
+MovementType::Adjustment // quantity delta corrected manually
+MovementType::Set        // quantity set to absolute value
+MovementType::Reserve    // reserved_quantity increased; quantity unchanged
+MovementType::Release    // reserved_quantity decreased; quantity unchanged
+```
+
+### InventoryReason
+```php
+use Aliziodev\ProductCatalog\Enums\InventoryReason;
+
+// Restock
+InventoryReason::PURCHASE         // 'purchase'
+InventoryReason::RETURN_ITEM      // 'return'
+// Deduction
+InventoryReason::SALE             // 'sale'
+InventoryReason::DAMAGE           // 'damage'
+InventoryReason::EXPIRY           // 'expiry'
+// Adjustment / Set
+InventoryReason::CORRECTION       // 'correction'
+InventoryReason::STOCKTAKE        // 'stocktake'
+// Reserve
+InventoryReason::ORDER_PLACED     // 'order_placed'
+InventoryReason::CART_HOLD        // 'cart_hold'
+// Release
+InventoryReason::ORDER_CANCELLED  // 'order_cancelled'
+InventoryReason::CART_RELEASED    // 'cart_released'
+InventoryReason::TIMEOUT          // 'timeout'
+// Commit
+InventoryReason::ORDER_FULFILLED  // 'order_fulfilled'
+```
+
+Custom reasons via config:
+```php
+// config/product-catalog.php
+'inventory' => ['movement_reasons' => ['promotion', 'gift']],
 ```
 
 ---
 
 ## Events
 
-| Event | Payload | When |
-|-------|---------|------|
+| Event | Key payload | Fired by |
+|-------|-------------|----------|
 | `ProductPublished` | `$event->product` | `$product->publish()` |
 | `ProductArchived` | `$event->product` | `$product->archive()` |
-| `InventoryAdjusted` | `$event->variant, $event->delta` | `DatabaseInventoryProvider::adjust()` |
+| `InventoryAdjusted` | `variant`, `previousQuantity`, `newQuantity`, `reason`, `movement`; helper: `delta()` | `adjust()`, `set()`, `commit()` |
+| `InventoryReserved` | `variant`, `type` (MovementType), `quantity`, `reservedBefore`, `reservedAfter`, `reason`, `movement`; helpers: `isReserve()`, `isRelease()` | `reserve()`, `release()` |
+| `InventoryLowStock` | `variant`, `availableQuantity`, `threshold`, `movement` | When available crosses `low_stock_threshold` (from above) |
+| `InventoryOutOfStock` | `variant`, `movement` | When available drops to 0 (takes precedence over LowStock) |
 
 Namespace: `Aliziodev\ProductCatalog\Events\`
 
@@ -181,8 +233,8 @@ Namespace: `Aliziodev\ProductCatalog\Events\`
 use Aliziodev\ProductCatalog\Exceptions\InventoryException;
 use Aliziodev\ProductCatalog\Exceptions\ProductCatalogException;
 
-// Insufficient stock
-InventoryException::insufficientStock($variant, $requestedQty);
+InventoryException::insufficientStock($requested, $available);
+InventoryException::insufficientReservation($requested, $reserved); // commit() when reserved < qty
 
 // Duplicate manual slug — thrown automatically by HasSlug when a manually-set slug is already taken
 ProductCatalogException::duplicateSlug($slug, $modelBasename);

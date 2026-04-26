@@ -46,4 +46,31 @@ class NullInventoryProvider implements InventoryProviderInterface
     ): void {
         // no-op
     }
+
+    public function reserve(
+        ProductVariant $variant,
+        int $quantity,
+        string $reason = '',
+        ?Model $reference = null,
+    ): void {
+        // no-op
+    }
+
+    public function release(
+        ProductVariant $variant,
+        int $quantity,
+        string $reason = '',
+        ?Model $reference = null,
+    ): void {
+        // no-op
+    }
+
+    public function commit(
+        ProductVariant $variant,
+        int $quantity,
+        string $reason = '',
+        ?Model $reference = null,
+    ): void {
+        // no-op
+    }
 }

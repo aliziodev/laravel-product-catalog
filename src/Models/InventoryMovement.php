@@ -18,7 +18,7 @@ class InventoryMovement extends Model
     use HasFactory;
 
     /** Movements are immutable — no updated_at. */
-    const UPDATED_AT = null;
+    public const UPDATED_AT = null;
 
     protected $fillable = [
         'variant_id',
@@ -26,6 +26,8 @@ class InventoryMovement extends Model
         'delta',
         'quantity_before',
         'quantity_after',
+        'reserved_before',
+        'reserved_after',
         'reason',
         'referenceable_type',
         'referenceable_id',
@@ -36,6 +38,8 @@ class InventoryMovement extends Model
         'delta' => 'integer',
         'quantity_before' => 'integer',
         'quantity_after' => 'integer',
+        'reserved_before' => 'integer',
+        'reserved_after' => 'integer',
     ];
 
     protected static function newFactory(): InventoryMovementFactory
@@ -59,13 +63,35 @@ class InventoryMovement extends Model
         return $this->morphTo();
     }
 
+    // -------------------------------------------------------------------------
+    // Quantity helpers
+    // -------------------------------------------------------------------------
+
+    /** True when total stock quantity increased (delta > 0 on stock movements). */
     public function isInbound(): bool
     {
         return $this->delta > 0;
     }
 
+    /** True when total stock quantity decreased (delta < 0 on stock movements). */
     public function isOutbound(): bool
     {
         return $this->delta < 0;
+    }
+
+    // -------------------------------------------------------------------------
+    // Reservation helpers
+    // -------------------------------------------------------------------------
+
+    /** True for Reserve and Release movements (reserved_quantity changed). */
+    public function isReservationMovement(): bool
+    {
+        return $this->type === MovementType::Reserve || $this->type === MovementType::Release;
+    }
+
+    /** True when reserved_before/after columns are populated. */
+    public function affectsReservation(): bool
+    {
+        return $this->reserved_before !== null;
     }
 }

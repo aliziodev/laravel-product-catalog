@@ -145,6 +145,14 @@ class Product extends Model
         $this->update(['status' => ProductStatus::Draft]);
     }
 
+    public function makePrivate(): void
+    {
+        $this->update([
+            'status' => ProductStatus::Private,
+            'published_at' => $this->published_at ?? now(),
+        ]);
+    }
+
     // -------------------------------------------------------------------------
     // Scopes
     // -------------------------------------------------------------------------
@@ -162,6 +170,17 @@ class Product extends Model
     public function scopeArchived(Builder $query): void
     {
         $query->where('status', ProductStatus::Archived);
+    }
+
+    public function scopePrivate(Builder $query): void
+    {
+        $query->where('status', ProductStatus::Private);
+    }
+
+    /** Both Published and Private — useful for authenticated storefronts. */
+    public function scopeVisible(Builder $query): void
+    {
+        $query->whereIn('status', [ProductStatus::Published->value, ProductStatus::Private->value]);
     }
 
     public function scopeForBrand(Builder $query, int|Brand $brand): void
@@ -222,6 +241,16 @@ class Product extends Model
     public function isArchived(): bool
     {
         return $this->status === ProductStatus::Archived;
+    }
+
+    public function isPrivate(): bool
+    {
+        return $this->status === ProductStatus::Private;
+    }
+
+    public function isLive(): bool
+    {
+        return $this->status->isLive();
     }
 
     public function isVariable(): bool

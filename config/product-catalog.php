@@ -41,6 +41,30 @@ return [
     */
     'inventory' => [
         'driver' => env('PRODUCT_CATALOG_INVENTORY_DRIVER', 'database'),
+
+        /*
+         | movement_reasons — list of valid reason strings for audit trail entries.
+         |
+         | The package uses these as documentation and as a reference for the
+         | InventoryReason constants class. Add your own application-specific
+         | reason strings here; they will appear alongside the built-in presets.
+         |
+         | Built-in presets live in Aliziodev\ProductCatalog\Enums\InventoryReason.
+         */
+        'movement_reasons' => [
+            // Restock
+            'purchase', 'return',
+            // Deduction
+            'sale', 'damage', 'expiry',
+            // Adjustment / Set
+            'correction', 'stocktake',
+            // Reserve
+            'order_placed', 'cart_hold',
+            // Release
+            'order_cancelled', 'cart_released', 'timeout',
+            // Commit
+            'order_fulfilled',
+        ],
     ],
 
     /*

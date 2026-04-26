@@ -15,29 +15,55 @@ Read this file when the user needs a custom inventory driver (own table, ERP, WM
 
 ---
 
-## Interface Contract (5 required methods)
+## Interface Contract (8 required methods)
 
 ```php
 namespace Aliziodev\ProductCatalog\Contracts;
 
 interface InventoryProviderInterface
 {
-    // Return the current stock quantity
+    // Return available qty (total − reserved). PHP_INT_MAX for Allow, 0 for Deny.
     public function getQuantity(ProductVariant $variant): int;
 
-    // Is the variant purchasable?
+    // Is the variant purchasable right now?
     public function isInStock(ProductVariant $variant): bool;
 
-    // Is there enough stock for the requested quantity?
+    // Is there enough available stock for the requested quantity?
     public function canFulfill(ProductVariant $variant, int $quantity): bool;
 
-    // Increase or decrease stock (positive = restock, negative = deduct)
+    // Adjust total stock (positive = restock, negative = deduct). Throws on overdraft.
     public function adjust(ProductVariant $variant, int $delta, string $reason = '', ?Model $reference = null): void;
 
-    // Set stock to an absolute value
+    // Set total stock to an absolute value. Throws if negative.
     public function set(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void;
+
+    // Reserve stock (increment reserved_quantity). Throws when available < quantity.
+    // Only applies to Track policy; no-op otherwise.
+    public function reserve(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void;
+
+    // Release a reservation (decrement reserved_quantity, capped at current reserved).
+    // Only applies to Track policy; no-op otherwise.
+    public function release(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void;
+
+    // Convert reservation to permanent deduction (both quantity and reserved decrease).
+    // Throws when reserved_quantity < quantity. Only applies to Track policy; no-op otherwise.
+    public function commit(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void;
 }
 ```
+
+### Reservation Lifecycle
+
+```
+reserve()  →  release()   (order cancelled / cart expired)
+reserve()  →  commit()    (order fulfilled)
+```
+
+| Operation | quantity | reserved_quantity | available |
+|---|---|---|---|
+| `reserve(5)` | unchanged | +5 | −5 |
+| `release(5)` | unchanged | −5 | +5 |
+| `commit(5)` | −5 | −5 | unchanged |
+| `adjust(-5)` | −5 | unchanged | −5 |
 
 ---
 
@@ -107,6 +133,22 @@ class AppInventoryProvider implements InventoryProviderInterface
             ['sku'      => $variant->sku],
             ['quantity' => max(0, $quantity)]
         );
+    }
+
+    public function reserve(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void
+    {
+        // implement reservation against your own table or external system
+    }
+
+    public function release(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void
+    {
+        // implement release against your own table or external system
+    }
+
+    public function commit(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void
+    {
+        // implement commit (reservation → permanent deduction)
+        $this->adjust($variant, -$quantity, $reason, $reference);
     }
 }
 ```
@@ -181,6 +223,30 @@ class ErpInventoryProvider implements InventoryProviderInterface
                 'reason'   => $reason,
             ]);
     }
+
+    public function reserve(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void
+    {
+        Http::withToken($this->apiKey)
+            ->post("{$this->baseUrl}/stock/{$variant->sku}/reserve", [
+                'quantity' => $quantity, 'reason' => $reason,
+            ]);
+    }
+
+    public function release(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void
+    {
+        Http::withToken($this->apiKey)
+            ->post("{$this->baseUrl}/stock/{$variant->sku}/release", [
+                'quantity' => $quantity, 'reason' => $reason,
+            ]);
+    }
+
+    public function commit(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void
+    {
+        Http::withToken($this->apiKey)
+            ->post("{$this->baseUrl}/stock/{$variant->sku}/commit", [
+                'quantity' => $quantity, 'reason' => $reason,
+            ]);
+    }
 }
 ```
 
@@ -232,6 +298,24 @@ class FallbackInventoryProvider implements InventoryProviderInterface
     {
         try { $this->primary->set($variant, $quantity, $reason, $reference); }
         catch (\Throwable) { $this->fallback->set($variant, $quantity, $reason, $reference); }
+    }
+
+    public function reserve(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void
+    {
+        try { $this->primary->reserve($variant, $quantity, $reason, $reference); }
+        catch (\Throwable) { $this->fallback->reserve($variant, $quantity, $reason, $reference); }
+    }
+
+    public function release(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void
+    {
+        try { $this->primary->release($variant, $quantity, $reason, $reference); }
+        catch (\Throwable) { $this->fallback->release($variant, $quantity, $reason, $reference); }
+    }
+
+    public function commit(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void
+    {
+        try { $this->primary->commit($variant, $quantity, $reason, $reference); }
+        catch (\Throwable) { $this->fallback->commit($variant, $quantity, $reason, $reference); }
     }
 }
 ```

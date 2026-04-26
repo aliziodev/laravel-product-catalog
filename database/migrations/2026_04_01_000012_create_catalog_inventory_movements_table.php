@@ -19,8 +19,14 @@ return new class extends Migration
             $table->integer('delta');
             $table->unsignedInteger('quantity_before');
             $table->unsignedInteger('quantity_after');
+
+            // Populated for Reserve and Release movements (null for stock-only changes).
+            // For Commit movements both quantity_* and reserved_* columns are filled.
+            $table->unsignedInteger('reserved_before')->nullable();
+            $table->unsignedInteger('reserved_after')->nullable();
+
             $table->string('reason')->nullable();
-            $table->nullableMorphs('referenceable');
+            $table->nullableMorphs('referenceable');  // auto-creates composite index
             $table->timestamp('created_at')->useCurrent();
 
             $table->index(['variant_id', 'created_at']);

@@ -27,6 +27,8 @@ class InventoryMovementFactory extends Factory
             'delta' => $delta,
             'quantity_before' => $before,
             'quantity_after' => $before + $delta,
+            'reserved_before' => null,
+            'reserved_after' => null,
             'reason' => null,
         ];
     }
@@ -47,6 +49,32 @@ class InventoryMovementFactory extends Factory
             'delta' => -$delta,
             'quantity_before' => max($delta, $attr['quantity_before']),
             'quantity_after' => max($delta, $attr['quantity_before']) - $delta,
+        ]);
+    }
+
+    public function reserve(int $qty = 5): static
+    {
+        $reservedBefore = fake()->numberBetween(0, 20);
+
+        return $this->state(fn (array $attr) => [
+            'type' => MovementType::Reserve,
+            'delta' => $qty,
+            'quantity_after' => $attr['quantity_before'],  // total qty unchanged
+            'reserved_before' => $reservedBefore,
+            'reserved_after' => $reservedBefore + $qty,
+        ]);
+    }
+
+    public function release(int $qty = 3): static
+    {
+        $reservedBefore = fake()->numberBetween($qty, 30);
+
+        return $this->state(fn (array $attr) => [
+            'type' => MovementType::Release,
+            'delta' => -$qty,
+            'quantity_after' => $attr['quantity_before'],  // total qty unchanged
+            'reserved_before' => $reservedBefore,
+            'reserved_after' => $reservedBefore - $qty,
         ]);
     }
 
