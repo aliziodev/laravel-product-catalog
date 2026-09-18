@@ -26,7 +26,10 @@ return new class extends Migration
             $table->unsignedInteger('reserved_after')->nullable();
 
             $table->string('reason')->nullable();
-            $table->nullableMorphs('referenceable');  // auto-creates composite index
+            // Named explicitly: the generated name would be
+            // <prefix>inventory_movements_referenceable_type_referenceable_id_index,
+            // which is 69 characters with the default prefix and over MySQL's 64 limit.
+            $table->nullableMorphs('referenceable', $prefix.'inv_mov_referenceable_index');
             $table->timestamp('created_at')->useCurrent();
 
             $table->index(['variant_id', 'created_at']);

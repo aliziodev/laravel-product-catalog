@@ -23,7 +23,7 @@ return new class extends Migration
             $table->decimal('length', 8, 2)->nullable();
             $table->decimal('width', 8, 2)->nullable();
             $table->decimal('height', 8, 2)->nullable();
-            $table->json('meta')->nullable()->after('height');
+            $table->json('meta')->nullable();
             $table->boolean('is_default')->default(false);
             $table->boolean('is_active')->default(true);
             $table->unsignedSmallInteger('position')->default(0);
