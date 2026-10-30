@@ -2,6 +2,15 @@
 
 All notable changes to `aliziodev/laravel-product-catalog` will be documented in this file.
 
+## [1.6.1](https://github.com/aliziodev/laravel-product-catalog/compare/v1.6.0...v1.6.1) (2026-10-30)
+
+### Bug Fixes
+
+* **inventory:** validate reservation quantities and keep stock from going negative ([ebd1c02](https://github.com/aliziodev/laravel-product-catalog/commit/ebd1c026d1cce628fee03f36a6242e16928588e2))
+* make the migrations run on MySQL ([#1](https://github.com/aliziodev/laravel-product-catalog/issues/1)) ([8538225](https://github.com/aliziodev/laravel-product-catalog/commit/85382252064aebcd763894f826f4f789fc371638))
+* **migrations:** add upgrade migration for schema changes older installs missed ([9007f4f](https://github.com/aliziodev/laravel-product-catalog/commit/9007f4fb5d9b1bbe9d22264b06ccc048cce5d0db))
+* **search:** ignore status parameter in ProductSearchBuilder::fromRequest() ([381b5ac](https://github.com/aliziodev/laravel-product-catalog/commit/381b5acda0886c6cc44ca9ae17fd5fd25e32d37f))
+
 ## [1.6.0](https://github.com/aliziodev/laravel-product-catalog/compare/v1.5.0...v1.6.0) (2026-04-26)
 
 ### Features
