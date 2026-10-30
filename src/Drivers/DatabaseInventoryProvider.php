@@ -134,6 +134,10 @@ class DatabaseInventoryProvider implements InventoryProviderInterface
         $this->ensurePositiveQuantity($quantity);
 
         $this->withItemLock($variant, function (InventoryItem $item) use ($variant, $quantity, $reason, $reference) {
+            if ($item->policy === InventoryPolicy::Deny) {
+                throw InventoryException::purchaseNotAllowed($variant->getKey());
+            }
+
             if ($item->policy !== InventoryPolicy::Track) {
                 return;
             }

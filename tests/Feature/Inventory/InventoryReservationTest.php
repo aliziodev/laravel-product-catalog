@@ -384,3 +384,23 @@ it('rejects a negative quantity even when the policy would make the call a no-op
 
     ProductCatalog::inventory()->reserve($variant, -1);
 })->throws(InventoryException::class, 'Quantity must be a positive integer');
+
+// ---------------------------------------------------------------------------
+// Deny policy
+// ---------------------------------------------------------------------------
+
+it('reserve() throws for Deny policy and leaves the item untouched', function () {
+    $variant = ProductVariant::factory()->create();
+    InventoryItem::factory()->create(['variant_id' => $variant->id, 'quantity' => 10, 'policy' => InventoryPolicy::Deny]);
+
+    Event::fake([InventoryReserved::class]);
+
+    expect(fn () => ProductCatalog::inventory()->reserve($variant, 1))
+        ->toThrow(InventoryException::class, 'purchase policy set to deny');
+
+    $item = InventoryItem::where('variant_id', $variant->id)->first();
+    expect($item->reserved_quantity)->toBe(0)
+        ->and(InventoryMovement::count())->toBe(0);
+
+    Event::assertNotDispatched(InventoryReserved::class);
+});
