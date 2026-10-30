@@ -150,6 +150,22 @@ it('commit() throws when reserved_quantity is insufficient', function () {
     ProductCatalog::inventory()->commit($variant, 5);
 })->throws(InventoryException::class);
 
+it('commit() throws instead of writing a negative quantity when stock was set below the reservation', function () {
+    $variant = ProductVariant::factory()->create();
+    InventoryItem::factory()->create(['variant_id' => $variant->id, 'quantity' => 10, 'reserved_quantity' => 8, 'policy' => InventoryPolicy::Track]);
+
+    // A stock count finds only 5 units while 8 are still reserved.
+    ProductCatalog::inventory()->set($variant, 5);
+
+    expect(fn () => ProductCatalog::inventory()->commit($variant, 8))
+        ->toThrow(InventoryException::class, 'Insufficient stock');
+
+    $item = InventoryItem::where('variant_id', $variant->id)->first();
+    expect($item->quantity)->toBe(5)
+        ->and($item->reserved_quantity)->toBe(8)
+        ->and(InventoryMovement::where('type', MovementType::Deduction)->count())->toBe(0);
+});
+
 it('commit() is a no-op for Allow policy', function () {
     $variant = ProductVariant::factory()->create();
     InventoryItem::factory()->create(['variant_id' => $variant->id, 'quantity' => 0, 'policy' => InventoryPolicy::Allow]);
@@ -337,3 +353,34 @@ it('movements provide complete audit trail for reserve → commit lifecycle', fu
         ->and($movements[1]->reserved_before)->toBe(5)
         ->and($movements[1]->reserved_after)->toBe(0);
 });
+
+// ---------------------------------------------------------------------------
+// Quantity validation
+// ---------------------------------------------------------------------------
+
+it('rejects zero and negative quantities', function (string $method, int $quantity) {
+    $variant = ProductVariant::factory()->create();
+    InventoryItem::factory()->create(['variant_id' => $variant->id, 'quantity' => 10, 'reserved_quantity' => 8, 'policy' => InventoryPolicy::Track]);
+
+    expect(fn () => ProductCatalog::inventory()->{$method}($variant, $quantity))
+        ->toThrow(InventoryException::class, 'Quantity must be a positive integer');
+
+    $item = InventoryItem::where('variant_id', $variant->id)->first();
+    expect($item->quantity)->toBe(10)
+        ->and($item->reserved_quantity)->toBe(8)
+        ->and(InventoryMovement::count())->toBe(0);
+})->with([
+    'reserve zero' => ['reserve', 0],
+    'reserve negative' => ['reserve', -5],
+    'release zero' => ['release', 0],
+    'release negative' => ['release', -5],
+    'commit zero' => ['commit', 0],
+    'commit negative' => ['commit', -5],
+]);
+
+it('rejects a negative quantity even when the policy would make the call a no-op', function () {
+    $variant = ProductVariant::factory()->create();
+    InventoryItem::factory()->create(['variant_id' => $variant->id, 'quantity' => 0, 'policy' => InventoryPolicy::Allow]);
+
+    ProductCatalog::inventory()->reserve($variant, -1);
+})->throws(InventoryException::class, 'Quantity must be a positive integer');

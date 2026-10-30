@@ -131,6 +131,8 @@ class DatabaseInventoryProvider implements InventoryProviderInterface
         string $reason = '',
         ?Model $reference = null,
     ): void {
+        $this->ensurePositiveQuantity($quantity);
+
         $this->withItemLock($variant, function (InventoryItem $item) use ($variant, $quantity, $reason, $reference) {
             if ($item->policy !== InventoryPolicy::Track) {
                 return;
@@ -169,6 +171,8 @@ class DatabaseInventoryProvider implements InventoryProviderInterface
         string $reason = '',
         ?Model $reference = null,
     ): void {
+        $this->ensurePositiveQuantity($quantity);
+
         $this->withItemLock($variant, function (InventoryItem $item) use ($variant, $quantity, $reason, $reference) {
             if ($item->policy !== InventoryPolicy::Track) {
                 return;
@@ -201,6 +205,8 @@ class DatabaseInventoryProvider implements InventoryProviderInterface
         string $reason = '',
         ?Model $reference = null,
     ): void {
+        $this->ensurePositiveQuantity($quantity);
+
         $this->withItemLock($variant, function (InventoryItem $item) use ($variant, $quantity, $reason, $reference) {
             if ($item->policy !== InventoryPolicy::Track) {
                 return;
@@ -208,6 +214,12 @@ class DatabaseInventoryProvider implements InventoryProviderInterface
 
             if ($item->reserved_quantity < $quantity) {
                 throw InventoryException::insufficientReservation($quantity, $item->reserved_quantity);
+            }
+
+            // set() or adjust() can bring quantity below reserved_quantity (e.g. a
+            // stock count correction). Never let the commit write a negative quantity.
+            if ($item->quantity < $quantity) {
+                throw InventoryException::insufficientStock($quantity, $item->quantity);
             }
 
             $qtyBefore = $item->quantity;
@@ -239,6 +251,21 @@ class DatabaseInventoryProvider implements InventoryProviderInterface
     // -------------------------------------------------------------------------
     // Internal helpers
     // -------------------------------------------------------------------------
+
+    /**
+     * Reject zero and negative amounts for reserve(), release() and commit().
+     *
+     * A negative amount would silently invert the operation, e.g. reserve(-5)
+     * would free stock held by other orders.
+     *
+     * @throws InventoryException
+     */
+    protected function ensurePositiveQuantity(int $quantity): void
+    {
+        if ($quantity < 1) {
+            throw InventoryException::invalidQuantity($quantity);
+        }
+    }
 
     /**
      * Ensure the inventory row exists, then run $callback inside a transaction

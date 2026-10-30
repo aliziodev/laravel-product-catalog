@@ -7,6 +7,7 @@ namespace Aliziodev\ProductCatalog\Models;
 use Aliziodev\ProductCatalog\Concerns\HasCatalogTable;
 use Aliziodev\ProductCatalog\Database\Factories\InventoryItemFactory;
 use Aliziodev\ProductCatalog\Enums\InventoryPolicy;
+use Aliziodev\ProductCatalog\Exceptions\InventoryException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -57,10 +58,17 @@ class InventoryItem extends Model
     // Scopes
     // -------------------------------------------------------------------------
 
+    /**
+     * Items whose available quantity (quantity − reserved) is at or below the threshold.
+     *
+     * Written as an addition rather than `quantity - reserved_quantity` because the
+     * columns are UNSIGNED: on MySQL the subtraction raises error 1690 for the whole
+     * query as soon as any row has reserved_quantity > quantity.
+     */
     public function scopeLowStock(Builder $query): void
     {
         $query->whereNotNull('low_stock_threshold')
-            ->whereRaw('(quantity - reserved_quantity) <= low_stock_threshold');
+            ->whereRaw('quantity <= reserved_quantity + low_stock_threshold');
     }
 
     // -------------------------------------------------------------------------
@@ -92,13 +100,33 @@ class InventoryItem extends Model
         return max(0, $this->quantity - $this->reserved_quantity);
     }
 
+    /**
+     * Low-level counter update. It does not lock the row, check availability or
+     * record a movement — use ProductCatalog::inventory()->reserve() instead.
+     *
+     * @throws InventoryException when $qty is negative
+     */
     public function reserve(int $qty): void
     {
+        if ($qty < 0) {
+            throw InventoryException::invalidQuantity($qty);
+        }
+
         $this->increment('reserved_quantity', $qty);
     }
 
+    /**
+     * Low-level counter update, capped at the current reserved quantity.
+     * Prefer ProductCatalog::inventory()->release().
+     *
+     * @throws InventoryException when $qty is negative
+     */
     public function release(int $qty): void
     {
+        if ($qty < 0) {
+            throw InventoryException::invalidQuantity($qty);
+        }
+
         $this->decrement('reserved_quantity', min($qty, $this->reserved_quantity));
     }
 }
