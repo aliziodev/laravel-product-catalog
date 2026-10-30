@@ -141,23 +141,40 @@ class AppInventoryProvider implements InventoryProviderInterface
         );
     }
 
+    // This table has no reserved column, so holds are not stored:
+    // reserve() only checks availability and commit() deducts the stock.
+
     public function reserve(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void
     {
-        // implement reservation against your own table or external system
+        if ($quantity < 1) {
+            throw InventoryException::invalidQuantity($quantity);
+        }
+
+        if (! $this->canFulfill($variant, $quantity)) {
+            throw InventoryException::insufficientStock($quantity, $this->getQuantity($variant));
+        }
     }
 
     public function release(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void
     {
-        // implement release against your own table or external system
+        if ($quantity < 1) {
+            throw InventoryException::invalidQuantity($quantity);
+        }
     }
 
     public function commit(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void
     {
-        // implement commit (reservation → permanent deduction)
+        if ($quantity < 1) {
+            throw InventoryException::invalidQuantity($quantity);
+        }
+
         $this->adjust($variant, -$quantity, $reason, $reference);
     }
 }
 ```
+
+Reject a `$quantity` below 1 in `reserve()`, `release()` and `commit()`, as the built-in driver does.
+Never leave `reserve()` as an empty stub: callers rely on it throwing when stock is short.
 
 ---
 
@@ -232,29 +249,41 @@ class ErpInventoryProvider implements InventoryProviderInterface
 
     public function reserve(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void
     {
-        Http::withToken($this->apiKey)
-            ->post("{$this->baseUrl}/stock/{$variant->sku}/reserve", [
-                'quantity' => $quantity, 'reason' => $reason,
-            ]);
+        $this->send('reserve', $variant, $quantity, $reason, $reference);
     }
 
     public function release(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void
     {
-        Http::withToken($this->apiKey)
-            ->post("{$this->baseUrl}/stock/{$variant->sku}/release", [
-                'quantity' => $quantity, 'reason' => $reason,
-            ]);
+        $this->send('release', $variant, $quantity, $reason, $reference);
     }
 
     public function commit(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void
     {
-        Http::withToken($this->apiKey)
-            ->post("{$this->baseUrl}/stock/{$variant->sku}/commit", [
-                'quantity' => $quantity, 'reason' => $reason,
+        $this->send('commit', $variant, $quantity, $reason, $reference);
+    }
+
+    private function send(string $action, ProductVariant $variant, int $quantity, string $reason, ?Model $reference): void
+    {
+        if ($quantity < 1) {
+            throw InventoryException::invalidQuantity($quantity);
+        }
+
+        $response = Http::withToken($this->apiKey)
+            ->post("{$this->baseUrl}/stock/{$variant->sku}/{$action}", [
+                'quantity'     => $quantity,
+                'reason'       => $reason,
+                'reference_id' => $reference?->getKey(),
             ]);
+
+        if ($response->failed()) {
+            throw new \RuntimeException("ERP {$action} failed for SKU: {$variant->sku}");
+        }
     }
 }
 ```
+
+A failed hold must throw — silently ignoring the response would let an order go through
+without stock behind it.
 
 ---
 
@@ -306,25 +335,28 @@ class FallbackInventoryProvider implements InventoryProviderInterface
         catch (\Throwable) { $this->fallback->set($variant, $quantity, $reason, $reference); }
     }
 
+    // Reservations are not mirrored to the fallback: a hold placed in one system
+    // and committed in the other would leave both out of sync. Let them fail.
+
     public function reserve(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void
     {
-        try { $this->primary->reserve($variant, $quantity, $reason, $reference); }
-        catch (\Throwable) { $this->fallback->reserve($variant, $quantity, $reason, $reference); }
+        $this->primary->reserve($variant, $quantity, $reason, $reference);
     }
 
     public function release(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void
     {
-        try { $this->primary->release($variant, $quantity, $reason, $reference); }
-        catch (\Throwable) { $this->fallback->release($variant, $quantity, $reason, $reference); }
+        $this->primary->release($variant, $quantity, $reason, $reference);
     }
 
     public function commit(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void
     {
-        try { $this->primary->commit($variant, $quantity, $reason, $reference); }
-        catch (\Throwable) { $this->fallback->commit($variant, $quantity, $reason, $reference); }
+        $this->primary->commit($variant, $quantity, $reason, $reference);
     }
 }
 ```
+
+> ⚠️ Only reads, `adjust()` and `set()` may fall back. Never send `reserve()` / `release()` /
+> `commit()` to the fallback driver.
 
 ---
 
@@ -350,7 +382,7 @@ event(new InventoryAdjusted($variant, $previous, $newQty, $reason)); // movement
 ```php
 // AppServiceProvider or a dedicated ServiceProvider
 use Aliziodev\ProductCatalog\Facades\ProductCatalog;
-use Aliziodev\ProductCatalog\Inventory\DatabaseInventoryProvider;
+use Aliziodev\ProductCatalog\Drivers\DatabaseInventoryProvider;
 
 public function boot(): void
 {
@@ -389,3 +421,15 @@ PRODUCT_CATALOG_INVENTORY_DRIVER=app
 ```php
 $inventory = ProductCatalog::inventory(); // resolves the active driver
 
+$inventory->isInStock($variant);
+$inventory->canFulfill($variant, 10);
+$inventory->adjust($variant, -3, InventoryReason::DAMAGE);
+$inventory->set($variant, 50, InventoryReason::STOCKTAKE);
+
+// Order lifecycle
+$inventory->reserve($variant, 2, InventoryReason::ORDER_PLACED, $order);
+$inventory->release($variant, 2, InventoryReason::ORDER_CANCELLED, $order); // or…
+$inventory->commit($variant, 2, InventoryReason::ORDER_FULFILLED, $order);
+```
+
+Application code never needs to know which driver is active.

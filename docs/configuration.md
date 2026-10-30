@@ -69,6 +69,9 @@ Prefix prepended to every table the package creates:
 >
 > If you need to change the prefix after migration, rename the tables manually and update this config simultaneously.
 
+> **Pitfall — Keep the prefix at 17 characters or fewer on MySQL/MariaDB.**
+> MySQL and MariaDB reject identifiers longer than 64 characters. The longest name Laravel generates for the package is `<prefix>inventory_movements_variant_id_created_at_index` — 47 characters plus the prefix — so a longer prefix makes `migrate` fail. PostgreSQL allows 63 characters (a prefix of up to 16) and silently truncates longer names instead of failing. The default `catalog_` (8 characters) fits both.
+
 ---
 
 ## `inventory.driver`
@@ -110,6 +113,24 @@ Register via `ProductCatalog::extend()` in a `ServiceProvider`. See [Custom Inve
 
 ---
 
+## `inventory.movement_reasons`
+
+```php
+'inventory' => [
+    'movement_reasons' => [
+        'purchase', 'return', 'sale', 'damage', 'expiry', 'correction', 'stocktake',
+        'order_placed', 'cart_hold', 'order_cancelled', 'cart_released', 'timeout',
+        'order_fulfilled',
+    ],
+],
+```
+
+A reference list of reason strings that mirrors the `InventoryReason` constants. **It is documentation only — nothing in the package reads it.** The `$reason` passed to `adjust()`, `set()`, `reserve()`, `release()` and `commit()` is a free string, stored on the movement record as given and never checked against this list. Adding a string here does not register or validate it.
+
+Use the `InventoryReason` constants, and your own constants for app-specific reasons. If you want to enforce the list, validate against `config('product-catalog.inventory.movement_reasons')` in your own code before calling the driver.
+
+---
+
 ## `slug`
 
 ```php
@@ -129,7 +150,7 @@ Set to `false` if you manage slugs manually:
 $product->update(['slug' => 'my-custom-slug-' . $product->route_key]);
 ```
 
-> **Note:** Even with `auto_generate = false`, you must set `slug` and `route_key` yourself on first create, or slug generation is skipped entirely.
+> **Note:** `auto_generate` only affects updates. On create, `route_key` and `slug` are always generated when you leave them empty, whatever this setting says. With `auto_generate = false`, renaming a product keeps its current slug until you change `slug` yourself.
 
 > **Manual slug uniqueness.** When you explicitly set a `slug` on `create` or `update`, the package validates it for uniqueness **before** hitting the database and throws `ProductCatalogException::duplicateSlug()` with a helpful message instead of a raw `SQLSTATE[23000]`. Auto-generated slugs are always unique via the random `route_key` suffix and never trigger this check.
 
@@ -153,6 +174,49 @@ Length of the random alphanumeric suffix appended permanently to the slug. Clamp
 
 ---
 
+## `search.driver`
+
+```php
+'search' => [
+    'driver' => env('PRODUCT_CATALOG_SEARCH_DRIVER', 'database'),
+],
+```
+
+The driver used by `ProductSearchBuilder` and `ProductCatalog::search()`.
+
+| Driver | Behaviour |
+|---|---|
+| `database` | Default. Plain Eloquent queries, no extra dependencies. Text search uses `LIKE`, or `MATCH … AGAINST` when `search.fulltext` is on. |
+| `scout` | Text search through Laravel Scout (Algolia, Meilisearch, Typesense or Scout's database engine); catalog filters and sorting still run in Eloquent. Requires `laravel/scout` and an application model in `model` — see [Scout Integration](scout-integration.md). |
+
+Register your own driver with `ProductCatalog::extendSearch('my-driver', fn ($app) => new MyDriver)` and select it with `PRODUCT_CATALOG_SEARCH_DRIVER=my-driver`.
+
+---
+
+## `search.fulltext`
+
+```php
+'search' => [
+    'fulltext' => env('PRODUCT_CATALOG_SEARCH_FULLTEXT', false),
+],
+```
+
+Only read by the `database` search driver.
+
+- `false` (default): `LIKE '%term%'` on the product `name`, `code` and `short_description` and the variant `sku`. Works on every database, but a leading wildcard cannot use an index, so large tables are scanned.
+- `true`: `MATCH(name, short_description) AGAINST(term)` on the products table. Variant SKUs are still matched with `LIKE` because they live in another table; `code` is not searched in this mode.
+
+> **Pitfall — FULLTEXT needs MySQL/MariaDB and an index you add yourself.**
+> The package migrations do not create the FULLTEXT index. Add it before turning the option on:
+> ```php
+> Schema::table(config('product-catalog.table_prefix', 'catalog_').'products', function (Blueprint $table) {
+>     $table->fullText(['name', 'short_description']);
+> });
+> ```
+> SQLite has no FULLTEXT support — keep the option `false` in a SQLite test environment.
+
+---
+
 ## `routes`
 
 ```php
@@ -171,9 +235,13 @@ Set to `true` to register the built-in read-only catalog API:
 ```
 GET /catalog/products           → ProductController@index
 GET /catalog/products/{slug}    → ProductController@show
+GET /catalog/categories         → CategoryController@index
+GET /catalog/brands             → BrandController@index
 ```
 
-Both endpoints return only live products (`Product::published()`), so products scheduled for a future `published_at` stay hidden. `show` includes active variants only — a variant with `is_active = false` is left out.
+The product endpoints return only live products (`Product::published()`), so products scheduled for a future `published_at` stay hidden. `show` includes active variants only — a variant with `is_active = false` is left out. `categories` returns the root categories with their children, ordered by `position`; `brands` returns all brands ordered by name.
+
+The routes have no names — see the note at the end of this section.
 
 Leave `false` (default) if you are building your own controllers — the package models and resources are still fully available.
 
@@ -182,13 +250,15 @@ Leave `false` (default) if you are building your own controllers — the package
 URL prefix for the catalog routes. Change to avoid conflicts with your application's existing routes:
 
 ```env
-PRODUCT_CATALOG_ROUTES_PREFIX=api/v1/products
+PRODUCT_CATALOG_ROUTES_PREFIX=api/v1
 ```
 
 Results in:
 ```
 GET /api/v1/products
 GET /api/v1/products/{slug}
+GET /api/v1/categories
+GET /api/v1/brands
 ```
 
 ### `middleware`
@@ -209,8 +279,14 @@ PRODUCT_CATALOG_ROUTES_EXPOSE_META=true
 
 It is off by default because `meta` often holds internal data — the [Internal Catalog](internal-catalog.md) guide stores `reorder_point` and `lead_time_days` there. The setting applies wherever the two resources are used, including your own controllers. Turn it on only when everything you keep in `meta` is safe to publish.
 
-> **Pitfall — `enabled = true` with conflicting route names.**
-> The built-in routes are named `catalog.products.index` and `catalog.products.show`. If your application already has routes with these names, there will be a conflict. Either keep `enabled = false` and define your own routes, or rename yours.
+> **Note — the built-in routes are unnamed.**
+> There is no `catalog.products.index` or similar, so `route(...)` cannot point at them. Build the URL from the prefix — `url(config('product-catalog.routes.prefix').'/products')` — or keep `enabled = false` and register your own named routes, reusing the package controllers if they fit:
+> ```php
+> use Aliziodev\ProductCatalog\Http\Controllers\ProductController;
+>
+> Route::get('catalog/products', [ProductController::class, 'index'])->name('catalog.products.index');
+> Route::get('catalog/products/{slug}', [ProductController::class, 'show'])->name('catalog.products.show');
+> ```
 
 ---
 

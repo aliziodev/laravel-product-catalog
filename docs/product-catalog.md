@@ -20,7 +20,7 @@ A read-only product catalog — filterable, searchable, and routable. Suitable f
 // config/product-catalog.php
 'routes' => [
     'enabled'     => true,
-    'prefix'      => 'catalog',   // GET /catalog/products, GET /catalog/products/{slug}
+    'prefix'      => 'catalog',   // GET /catalog/products, /products/{slug}, /categories, /brands
     'middleware'  => ['api'],
     'expose_meta' => false,       // true to include product/variant `meta` in responses
 ],

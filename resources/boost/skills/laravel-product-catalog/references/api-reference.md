@@ -217,11 +217,9 @@ InventoryReason::TIMEOUT          // 'timeout'
 InventoryReason::ORDER_FULFILLED  // 'order_fulfilled'
 ```
 
-Custom reasons via config:
-```php
-// config/product-catalog.php
-'inventory' => ['movement_reasons' => ['promotion', 'gift']],
-```
+`$reason` is a free string, stored on the movement record as given. The config key
+`inventory.movement_reasons` mirrors these constants as a reference list only — the package never
+reads it and does not validate reasons against it. For app-specific reasons, define your own constants.
 
 ---
 
@@ -248,9 +246,11 @@ All six implement `Illuminate\Contracts\Events\ShouldDispatchAfterCommit`: liste
 use Aliziodev\ProductCatalog\Exceptions\InventoryException;
 use Aliziodev\ProductCatalog\Exceptions\ProductCatalogException;
 
-InventoryException::insufficientStock($requested, $available);       // reserve(), or adjust() dipping into reserved stock
+InventoryException::insufficientStock($requested, $available);       // reserve(), adjust() dipping into reserved stock, or commit() when quantity < qty
 InventoryException::insufficientReservation($requested, $reserved); // commit() when reserved < qty
 InventoryException::purchaseNotAllowed($variantId);                  // reserve() on a Deny variant
+InventoryException::invalidQuantity($quantity);                      // reserve(), release(), commit() with a quantity below 1
+InventoryException::negativeQuantityNotAllowed();                    // set() with a negative quantity
 
 // Duplicate manual slug — thrown automatically by HasSlug when a manually-set slug is already taken
 ProductCatalogException::duplicateSlug($slug, $modelBasename);
@@ -286,19 +286,25 @@ ProductCatalogException::cannotPublish($reason);
 ```
 GET /catalog/products           → ProductController@index
 GET /catalog/products/{slug}    → ProductController@show
+GET /catalog/categories         → CategoryController@index   (root categories + children)
+GET /catalog/brands             → BrandController@index      (all brands, by name)
 ```
 
-Both list live products only (`published()`); `show` includes active variants only.
+Prefix from `routes.prefix` (default `catalog`), middleware from `routes.middleware`. Both product
+endpoints list live products only (`published()`); `show` includes active variants only.
 
-Route names: `catalog.products.index`, `catalog.products.show`
+The routes are **unnamed** — there is no `catalog.products.index`. Use
+`url(config('product-catalog.routes.prefix').'/products')`, or set `enabled = false` and register
+your own named routes.
 
 ---
 
 ## Artisan Commands
 
 ```bash
-php artisan catalog:install    # interactive: publish config + migrate
-php artisan catalog:seed-demo  # seed demo data (dev only)
+php artisan catalog:install            # publish config + migrations (not interactive)
+php artisan catalog:install --migrate  # same, then run migrate
+php artisan catalog:seed-demo          # seed demo data (dev only)
 ```
 
 ---
@@ -311,7 +317,7 @@ php artisan catalog:seed-demo  # seed demo data (dev only)
 | `catalog_product_variants` | Variants (the sellable unit) |
 | `catalog_product_options` | Option axes (Color, Size) |
 | `catalog_product_option_values` | Option values (Red, XL) |
-| `catalog_product_option_value_variant` | Pivot: variant ↔ option values |
+| `catalog_variant_option_values` | Pivot: variant ↔ option values |
 | `catalog_inventory_items` | Stock per variant |
 | `catalog_inventory_movements` | Audit trail of stock changes |
 | `catalog_brands` | Brands |
@@ -327,5 +333,6 @@ php artisan catalog:seed-demo  # seed demo data (dev only)
 | `catalog_products` | `name` | `idx_catalog_products_name` | `000004_create_catalog_products_table` |
 | `catalog_inventory_items` | `policy` | `idx_catalog_inventory_items_policy` | `000011_create_catalog_inventory_items_table` |
 
+> Installs created before v1.5.0 get both indexes from `2026_10_30_000001_sync_catalog_schema_for_upgraded_installs`.
 > The `name` index speeds up `ORDER BY name` sorting and prefix LIKE searches.
 > The `policy` index speeds up `inStock()` and `lowStock()` scopes which filter by policy value. 

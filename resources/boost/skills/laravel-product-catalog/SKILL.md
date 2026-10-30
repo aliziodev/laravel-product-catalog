@@ -26,8 +26,11 @@ Inventory is pluggable — swap drivers without changing application code.
 
 ```bash
 composer require aliziodev/laravel-product-catalog
-php artisan catalog:install   # interactive — publishes config + runs migrations
+php artisan catalog:install --migrate   # publishes config + migrations; --migrate also runs migrate
 ```
+
+`catalog:install` is not interactive. Without `--migrate` it only publishes, and you run
+`php artisan migrate` yourself.
 
 Or manually:
 ```bash
@@ -42,10 +45,10 @@ php artisan vendor:publish --tag=product-catalog-config  # optional
 'table_prefix' => env('PRODUCT_CATALOG_TABLE_PREFIX', 'catalog_'),  // set BEFORE migrate
 'inventory' => [
     'driver'           => env('PRODUCT_CATALOG_INVENTORY_DRIVER', 'database'), // 'database' | 'null' | custom
-    'movement_reasons' => [],  // add app-specific reason strings here
+    'movement_reasons' => [/* ... */],  // reference list only — never read or validated by the package
 ],
 'slug' => [
-    'auto_generate'    => true,
+    'auto_generate'    => true,  // updates only: re-slug when name changes; create always generates slug + route_key
     'route_key_length' => 8,   // random suffix length (4–32)
 ],
 'search' => [
@@ -60,6 +63,12 @@ php artisan vendor:publish --tag=product-catalog-config  # optional
 ```
 
 > ⚠️ **Pitfall:** Change `table_prefix` **before** running `migrate`. Changing it afterward orphans the old tables — manual rename required.
+> Keep it at **17 characters or fewer** on MySQL/MariaDB (64-character identifier limit): the
+> longest generated name is `<prefix>inventory_movements_variant_id_created_at_index` (47 + prefix),
+> and a longer prefix makes `migrate` fail. PostgreSQL (limit 63) silently truncates instead.
+>
+> **`movement_reasons` is documentation only.** `$reason` is a free string stored as given; the
+> package never checks it against this list. Use `InventoryReason` constants (or your own).
 >
 > ⚠️ **Scout pitfall:** `ScoutSearchDriver` does **not** use the package base `Product`
 > model directly. When enabling Scout, set the top-level `product-catalog.model` to your
@@ -438,10 +447,16 @@ Enable built-in routes:
 PRODUCT_CATALOG_ROUTES_ENABLED=true
 # GET /catalog/products
 # GET /catalog/products/{slug}
+# GET /catalog/categories
+# GET /catalog/brands
 ```
 
-Both endpoints return live products only (`published()`). The `{slug}` endpoint includes
+The product endpoints return live products only (`published()`). The `{slug}` endpoint includes
 active variants only (`is_active = false` variants are left out).
+
+> ⚠️ The built-in routes have **no names** — `route('catalog.products.index')` does not exist.
+> Use `url(config('product-catalog.routes.prefix').'/products')`, or keep `enabled = false`
+> and define your own named routes (the package controllers can be reused).
 
 ---
 
@@ -546,7 +561,7 @@ See `references/inventory.md` for full examples (ERP API, fallback strategy).
 
 ## Common Gotchas
 
-1. **Set `table_prefix` before migrating** — changing it afterward requires manual table renames.
+1. **Set `table_prefix` before migrating** — changing it afterward requires manual table renames. Keep it ≤ 17 characters on MySQL/MariaDB.
 2. **Always create `inventoryItem`** — variants without one are excluded from `inStock()` scope.
 3. **`buildVariantSku()` requires `load('optionValues')`** — call after syncing option values.
 4. **Never update `route_key`** — it is the permanent slug identifier. Changing it breaks all existing links.
@@ -695,12 +710,15 @@ synced via a model observer.
 
 ### Database Indexes
 
-The package ships these indexes out of the box (migration `2026_04_01_000013`):
+The package ships these named indexes out of the box:
 
-| Table | Column | Index | Usage |
-|-------|--------|-------|-------|
-| `catalog_products` | `name` | `idx_catalog_products_name` | `ORDER BY name`, prefix LIKE searches |
-| `catalog_inventory_items` | `policy` | `idx_catalog_inventory_items_policy` | `inStock()` scope, `lowStock()` scope |
+| Table | Column | Index | Created in | Usage |
+|-------|--------|-------|------------|-------|
+| `catalog_products` | `name` | `idx_catalog_products_name` | `2026_04_01_000004_create_catalog_products_table` | `ORDER BY name`, prefix LIKE searches |
+| `catalog_inventory_items` | `policy` | `idx_catalog_inventory_items_policy` | `2026_04_01_000011_create_catalog_inventory_items_table` | `inStock()` scope, `lowStock()` scope |
+
+Installs created before v1.5.0 get both from `2026_10_30_000001_sync_catalog_schema_for_upgraded_installs`,
+which adds them only when missing.
 
 ---
 
