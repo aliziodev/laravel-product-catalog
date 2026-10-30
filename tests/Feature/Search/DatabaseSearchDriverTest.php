@@ -12,6 +12,7 @@ use Aliziodev\ProductCatalog\Models\Product;
 use Aliziodev\ProductCatalog\Models\ProductVariant;
 use Aliziodev\ProductCatalog\Models\Tag;
 use Aliziodev\ProductCatalog\Search\DatabaseSearchDriver;
+use Illuminate\Database\Eloquent\Builder;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -259,15 +260,29 @@ it('sorts by price ascending', function () {
     expect($ids)->toBe([$b->id, $c->id, $a->id]);
 });
 
-it('uses the fulltext search code path when search.fulltext config is true', function () {
-    config(['product-catalog.search.fulltext' => true]);
-    makePublishedProduct(['name' => 'Kemeja Batik']);
+it('uses the fulltext search code path when search.fulltext config is true', function (bool $fulltext) {
+    config(['product-catalog.search.fulltext' => $fulltext]);
 
-    // SQLite does not support FULLTEXT — the Throwable that propagates proves
-    // the fulltext branch (lines 132–143) was entered, not the LIKE branch.
-    expect(fn () => app(DatabaseSearchDriver::class)->paginate('kemeja', [], 15, 1))
-        ->toThrow(RuntimeException::class, 'This database engine does not support fulltext search operations.');
-});
+    // Inspect the built query instead of running it: whether a database can
+    // execute MATCH ... AGAINST differs per engine and is not under test here.
+    $driver = new class extends DatabaseSearchDriver
+    {
+        public function queryFor(string $term): Builder
+        {
+            return $this->buildQuery($term, []);
+        }
+    };
+
+    $whereTypes = collect($driver->queryFor('kemeja')->getQuery()->wheres)
+        ->where('type', 'Nested')
+        ->flatMap(fn (array $where) => $where['query']->wheres)
+        ->pluck('type');
+
+    expect($whereTypes->contains('Fulltext'))->toBe($fulltext);
+})->with([
+    'fulltext on' => [true],
+    'fulltext off' => [false],
+]);
 
 // ── get() ─────────────────────────────────────────────────────────────────────
 
