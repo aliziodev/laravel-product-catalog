@@ -2,6 +2,14 @@
 
 All notable changes to `aliziodev/laravel-product-catalog` will be documented in this file.
 
+## [1.6.2](https://github.com/aliziodev/laravel-product-catalog/compare/v1.6.1...v1.6.2) (2026-10-30)
+
+### Bug Fixes
+
+* **http:** fall back to the default page size for invalid per_page ([508cef8](https://github.com/aliziodev/laravel-product-catalog/commit/508cef8c813df9fa79d44f2db8b4dfa206bf8d4d))
+* **search:** ignore malformed query parameters in fromRequest() ([b48f9e5](https://github.com/aliziodev/laravel-product-catalog/commit/b48f9e5ae58764625ea72184eb62e8d7a74a1b28))
+* **search:** make keyword search case-insensitive on PostgreSQL ([45e0807](https://github.com/aliziodev/laravel-product-catalog/commit/45e0807a91ea50523c98d95a70484551b925bf1c))
+
 ## [1.6.1](https://github.com/aliziodev/laravel-product-catalog/compare/v1.6.0...v1.6.1) (2026-10-30)
 
 ### Bug Fixes
