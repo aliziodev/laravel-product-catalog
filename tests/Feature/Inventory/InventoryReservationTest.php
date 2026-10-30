@@ -404,3 +404,59 @@ it('reserve() throws for Deny policy and leaves the item untouched', function ()
 
     Event::assertNotDispatched(InventoryReserved::class);
 });
+
+// ---------------------------------------------------------------------------
+// adjust() and reserved stock
+// ---------------------------------------------------------------------------
+
+it('adjust() refuses to deduct units held by reservations', function () {
+    $variant = ProductVariant::factory()->create();
+    InventoryItem::factory()->create(['variant_id' => $variant->id, 'quantity' => 5, 'reserved_quantity' => 3, 'policy' => InventoryPolicy::Track]);
+
+    Event::fake([InventoryAdjusted::class]);
+
+    expect(fn () => ProductCatalog::inventory()->adjust($variant, -3, 'sale'))
+        ->toThrow(InventoryException::class, 'requested 3, available 2');
+
+    $item = InventoryItem::where('variant_id', $variant->id)->first();
+    expect($item->quantity)->toBe(5)
+        ->and($item->reserved_quantity)->toBe(3)
+        ->and(InventoryMovement::count())->toBe(0);
+
+    Event::assertNotDispatched(InventoryAdjusted::class);
+});
+
+it('adjust() can deduct every available unit while reservations stay covered', function () {
+    $variant = ProductVariant::factory()->create();
+    InventoryItem::factory()->create(['variant_id' => $variant->id, 'quantity' => 5, 'reserved_quantity' => 3, 'policy' => InventoryPolicy::Track]);
+
+    ProductCatalog::inventory()->adjust($variant, -2, 'damage');
+
+    $item = InventoryItem::where('variant_id', $variant->id)->first();
+    expect($item->quantity)->toBe(3)
+        ->and($item->reserved_quantity)->toBe(3);
+
+    ProductCatalog::inventory()->commit($variant, 3);
+
+    expect($item->fresh()->quantity)->toBe(0);
+});
+
+it('adjust() still restocks when quantity is already below the reservation', function () {
+    $variant = ProductVariant::factory()->create();
+    InventoryItem::factory()->create(['variant_id' => $variant->id, 'quantity' => 1, 'reserved_quantity' => 4, 'policy' => InventoryPolicy::Track]);
+
+    ProductCatalog::inventory()->adjust($variant, 2, 'purchase');
+
+    expect(InventoryItem::where('variant_id', $variant->id)->value('quantity'))->toBe(3);
+});
+
+it('set() can still bring quantity below the reservation for stock counts', function () {
+    $variant = ProductVariant::factory()->create();
+    InventoryItem::factory()->create(['variant_id' => $variant->id, 'quantity' => 5, 'reserved_quantity' => 3, 'policy' => InventoryPolicy::Track]);
+
+    ProductCatalog::inventory()->set($variant, 1, 'stocktake');
+
+    $item = InventoryItem::where('variant_id', $variant->id)->first();
+    expect($item->quantity)->toBe(1)
+        ->and($item->reserved_quantity)->toBe(3);
+});
