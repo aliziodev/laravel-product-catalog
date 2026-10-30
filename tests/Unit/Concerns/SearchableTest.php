@@ -10,6 +10,7 @@ use Aliziodev\ProductCatalog\Models\Category;
 use Aliziodev\ProductCatalog\Models\Product;
 use Aliziodev\ProductCatalog\Models\ProductVariant;
 use Aliziodev\ProductCatalog\Models\Tag;
+use Illuminate\Database\Eloquent\Builder;
 
 /**
  * Concrete test double: base Product model extended with the Searchable concern.
@@ -55,9 +56,9 @@ it('toSearchableArray() casts type and status to their scalar values', function 
         ->and($arr['type'])->toBe(ProductType::Simple->value);
 });
 
-// ── toSearchableArray() — relations not loaded ────────────────────────────────
+// ── toSearchableArray() — product without related records ─────────────────────
 
-it('returns null brand_name when brand relation is not loaded', function () {
+it('returns null brand_name when the product has no brand', function () {
     $product = Product::factory()->create();
 
     $arr = SearchableProduct::find($product->id)->toSearchableArray();
@@ -65,7 +66,7 @@ it('returns null brand_name when brand relation is not loaded', function () {
     expect($arr['brand_name'])->toBeNull();
 });
 
-it('returns null primary_category fields when primaryCategory relation is not loaded', function () {
+it('returns null primary_category fields when the product has no primary category', function () {
     $product = Product::factory()->create();
 
     $arr = SearchableProduct::find($product->id)->toSearchableArray();
@@ -74,7 +75,7 @@ it('returns null primary_category fields when primaryCategory relation is not lo
         ->and($arr['primary_category_slug'])->toBeNull();
 });
 
-it('returns empty arrays for categories, tags, skus when relations are not loaded', function () {
+it('returns empty arrays for categories, tags, skus when the product has none', function () {
     $product = Product::factory()->create();
 
     $arr = SearchableProduct::find($product->id)->toSearchableArray();
@@ -85,12 +86,40 @@ it('returns empty arrays for categories, tags, skus when relations are not loade
         ->and($arr['skus'])->toBe([]);
 });
 
-it('returns null min_price when variants relation is not loaded', function () {
+it('returns null min_price when the product has no variants', function () {
     $product = Product::factory()->create();
 
     $arr = SearchableProduct::find($product->id)->toSearchableArray();
 
     expect($arr['min_price'])->toBeNull();
+});
+
+it('loads missing relations so a single-model save indexes the full document', function () {
+    $brand = Brand::factory()->create(['name' => 'Acme']);
+    $category = Category::factory()->create(['name' => 'Gadgets', 'slug' => 'gadgets']);
+    $tag = Tag::factory()->create(['slug' => 'featured']);
+
+    $product = Product::factory()->create(['brand_id' => $brand->id, 'primary_category_id' => $category->id]);
+    $product->categories()->attach($category);
+    $product->tags()->attach($tag);
+    ProductVariant::factory()->create(['product_id' => $product->id, 'sku' => 'SKU-001', 'price' => 25_000, 'is_active' => true]);
+
+    // Scout calls toSearchableArray() on the saved model, with no relations loaded.
+    $arr = SearchableProduct::find($product->id)->toSearchableArray();
+
+    expect($arr['brand_name'])->toBe('Acme')
+        ->and($arr['primary_category_slug'])->toBe('gadgets')
+        ->and($arr['category_slugs'])->toBe(['gadgets'])
+        ->and($arr['tags'])->toBe(['featured'])
+        ->and($arr['skus'])->toBe(['SKU-001'])
+        ->and($arr['min_price'])->toBe(25_000.0);
+});
+
+it('does not query relations for a model that is not saved yet', function () {
+    $arr = (new SearchableProduct)->forceFill(['name' => 'Draft idea'])->toSearchableArray();
+
+    expect($arr['brand_name'])->toBeNull()
+        ->and($arr['skus'])->toBe([]);
 });
 
 // ── toSearchableArray() — relations loaded ────────────────────────────────────
@@ -171,4 +200,52 @@ it('makeAllSearchableUsing() adds all required relations to the builder', functi
         ->and($eagerLoads)->toContain('categories')
         ->and($eagerLoads)->toContain('tags')
         ->and($eagerLoads)->toContain('variants');
+});
+
+// ── Combining with Laravel\Scout\Searchable ───────────────────────────────────
+
+/**
+ * Stand-in for Laravel\Scout\Searchable (not a dev dependency): it declares the
+ * same two methods the package concern overrides, with Scout's signatures.
+ */
+trait ScoutSearchableStandIn
+{
+    public function toSearchableArray()
+    {
+        return ['from' => 'scout'];
+    }
+
+    protected function makeAllSearchableUsing(Builder $query)
+    {
+        return $query;
+    }
+}
+
+class ScoutReadyProduct extends Product
+{
+    use ScoutSearchableStandIn, Searchable {
+        Searchable::toSearchableArray insteadof ScoutSearchableStandIn;
+        Searchable::makeAllSearchableUsing insteadof ScoutSearchableStandIn;
+    }
+}
+
+it('works next to Scout with the documented insteadof block', function () {
+    $product = Product::factory()->create(['name' => 'Kaos Polos']);
+
+    $arr = ScoutReadyProduct::find($product->id)->toSearchableArray();
+
+    expect($arr)->not->toHaveKey('from')
+        ->and($arr['name'])->toBe('Kaos Polos');
+});
+
+it('only overrides the two Scout methods the docs resolve with insteadof', function () {
+    // Every extra method that Scout also defines would be a fatal trait
+    // collision for existing installs until they add another insteadof line.
+    $methods = collect((new ReflectionClass(Searchable::class))->getMethods())
+        ->map(fn (ReflectionMethod $method) => $method->getName())
+        ->sort()
+        ->values()
+        ->all();
+
+    expect($methods)->toBe(['makeAllSearchableUsing', 'toSearchableArray']);
 });

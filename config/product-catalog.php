@@ -20,7 +20,9 @@ return [
     |
     | Your model must extend Aliziodev\ProductCatalog\Models\Product.
     | Add Laravel\Scout\Searchable + the package's Concerns\Searchable trait
-    | here (not on the base model) if you want Scout indexing.
+    | here (not on the base model) if you want Scout indexing. Both define
+    | toSearchableArray() and makeAllSearchableUsing(), so resolve them with
+    | insteadof — see docs/scout-integration.md.
     */
     'model' => Product::class,
 
@@ -98,7 +100,8 @@ return [
     |              1. composer require laravel/scout
     |              2. Configure a Scout driver in config/scout.php
     |              3. Add Laravel\Scout\Searchable + the package's Searchable
-    |                 concern to your Product model, then run scout:import.
+    |                 concern to your Product model (with an insteadof block,
+    |                 see docs/scout-integration.md), then run scout:import.
     |
     | Custom drivers can be registered via:
     |   ProductCatalog::extendSearch('my-driver', fn($app) => new MyDriver());

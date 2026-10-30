@@ -17,8 +17,15 @@ use Illuminate\Database\Eloquent\Builder;
  *
  *   class Product extends \Aliziodev\ProductCatalog\Models\Product
  *   {
- *       use ScoutSearchable, Searchable;
+ *       use ScoutSearchable, Searchable {
+ *           Searchable::toSearchableArray insteadof ScoutSearchable;
+ *           Searchable::makeAllSearchableUsing insteadof ScoutSearchable;
+ *       }
  *   }
+ *
+ * Both traits define these two methods, so the insteadof block is required:
+ * without it PHP stops with a fatal trait collision error. Keep this trait to
+ * these two methods; any other method Scout also defines would collide again.
  *
  * Then run: php artisan scout:import "App\Models\Product"
  */
@@ -31,6 +38,14 @@ trait Searchable
      */
     public function toSearchableArray(): array
     {
+        // Scout indexes a single model on every save without its relations.
+        // Load what is missing so the index never loses brand, category, tag,
+        // SKU and price data. Bulk imports already eager-load these through
+        // makeAllSearchableUsing(), so this adds no queries there.
+        if ($this->exists) {
+            $this->loadMissing(['brand', 'primaryCategory', 'categories', 'tags', 'variants']);
+        }
+
         $minPrice = null;
 
         if ($this->relationLoaded('variants')) {
