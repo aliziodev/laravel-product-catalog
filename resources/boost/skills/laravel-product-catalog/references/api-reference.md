@@ -330,9 +330,11 @@ php artisan catalog:seed-demo          # seed demo data (dev only)
 
 | Table | Column(s) | Index name | Migration |
 |-------|-----------|------------|-----------|
-| `catalog_products` | `name` | `idx_catalog_products_name` | `000004_create_catalog_products_table` |
-| `catalog_inventory_items` | `policy` | `idx_catalog_inventory_items_policy` | `000011_create_catalog_inventory_items_table` |
+| `catalog_products` | `name` | `catalog_products_name_index` | `000004_create_catalog_products_table` |
+| `catalog_inventory_items` | `policy` | `catalog_inventory_items_policy_index` | `000011_create_catalog_inventory_items_table` |
 
-> Installs created before v1.5.0 get both indexes from `2026_10_30_000001_sync_catalog_schema_for_upgraded_installs`.
+> Index names follow Laravel's `{table}_{column}_index` and so carry the table prefix.
+> Releases before v1.7.1 used the fixed names `idx_catalog_products_name` and `idx_catalog_inventory_items_policy`;
+> `2026_10_31_000001_prefix_catalog_index_names` renames them. Installs created before v1.5.0 get both indexes from `2026_10_30_000001_sync_catalog_schema_for_upgraded_installs`.
 > The `name` index speeds up `ORDER BY name` sorting and prefix LIKE searches.
 > The `policy` index speeds up `inStock()` and `lowStock()` scopes which filter by policy value. 

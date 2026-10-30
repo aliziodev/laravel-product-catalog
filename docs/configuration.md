@@ -64,6 +64,8 @@ Prefix prepended to every table the package creates:
 | `shop_` | `shop_products`, `shop_product_variants`, … |
 | `''` (empty) | `products`, `product_variants`, … |
 
+Index, foreign key and unique constraint names carry the prefix too, so several prefixes can share one database. On PostgreSQL and SQLite this needs v1.7.1 or later: earlier releases named two indexes `idx_catalog_*` regardless of the prefix, and those names must be unique across the whole schema there.
+
 > **Pitfall — Change BEFORE running migrations.**
 > If you change this value after `php artisan migrate` has already run, the package will look for tables with the new prefix that don't exist yet. Your old tables remain orphaned under the old prefix. There is no automatic rename.
 >

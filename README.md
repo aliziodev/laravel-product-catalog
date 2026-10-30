@@ -180,6 +180,10 @@ The package ships a [Laravel Boost](https://github.com/laravel/boost) skill in `
 
 Run `php artisan migrate` after every update.
 
+### To 1.7.1
+
+**Index names.** The `prefix_catalog_index_names` migration renames `idx_catalog_products_name` to `{prefix}products_name_index` and `idx_catalog_inventory_items_policy` to `{prefix}inventory_items_policy_index`. The old names ignored `table_prefix`, so on PostgreSQL and SQLite, where index names must be unique across the schema, a second prefix in the same database failed to migrate. On MySQL and PostgreSQL the rename only changes metadata; SQLite rebuilds the two indexes. If your own code refers to the old names, for example in a migration that drops them or an index hint in a raw query, update it.
+
 ### To 1.7.0
 
 **Wider price columns.** The `widen_catalog_variant_price_columns` migration changes `price`, `compare_price` and `cost_price` from `decimal(12,4)` to `decimal(19,4)`. The old type stopped at 99,999,999.9999, which is under Rp 100 juta. Only columns that still have the original definition are changed, and nothing happens on SQLite. On MySQL the change rebuilds the `product_variants` table, so run it at a quiet time if the table is large.
