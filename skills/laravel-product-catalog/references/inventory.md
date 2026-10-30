@@ -31,14 +31,15 @@ interface InventoryProviderInterface
     // Is there enough available stock for the requested quantity?
     public function canFulfill(ProductVariant $variant, int $quantity): bool;
 
-    // Adjust total stock (positive = restock, negative = deduct). Throws on overdraft.
+    // Adjust total stock (positive = restock, negative = deduct). A deduction may only take
+    // available stock: throws when the new quantity would drop below reserved_quantity.
     public function adjust(ProductVariant $variant, int $delta, string $reason = '', ?Model $reference = null): void;
 
-    // Set total stock to an absolute value. Throws if negative.
+    // Set total stock to an absolute value. Throws if negative; otherwise unrestricted (stocktakes).
     public function set(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void;
 
     // Reserve stock (increment reserved_quantity). Throws when available < quantity.
-    // Only applies to Track policy; no-op otherwise.
+    // Throws InventoryException::purchaseNotAllowed() for Deny; no-op for Allow.
     public function reserve(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void;
 
     // Release a reservation (decrement reserved_quantity, capped at current reserved).
@@ -63,7 +64,12 @@ reserve()  →  commit()    (order fulfilled)
 | `reserve(5)` | unchanged | +5 | −5 |
 | `release(5)` | unchanged | −5 | +5 |
 | `commit(5)` | −5 | −5 | unchanged |
-| `adjust(-5)` | −5 | unchanged | −5 |
+| `adjust(-5)` | −5 | unchanged | −5 (only if ≥ 5 available, else throws) |
+
+Ship reserved units with `commit()`, never `adjust()`. Use `adjust()` for unreserved movements
+(damage, walk-in sale, restock, return) and `set()` for stocktakes / physical corrections.
+The comments above describe the built-in `database` driver — mirror these rules in a custom
+driver whose stock system has policies or holds.
 
 ---
 
@@ -318,6 +324,23 @@ class FallbackInventoryProvider implements InventoryProviderInterface
         catch (\Throwable) { $this->fallback->commit($variant, $quantity, $reason, $reference); }
     }
 }
+```
+
+---
+
+## Dispatching Events
+
+The built-in `database` driver dispatches `InventoryAdjusted`, `InventoryReserved`,
+`InventoryLowStock` and `InventoryOutOfStock`. If the app listens for them, dispatch the same
+package events from the custom driver. They implement `ShouldDispatchAfterCommit`, so the same
+guarantee holds: inside a DB transaction, listeners run after the outermost transaction commits
+and never if it rolls back; with no open transaction they run immediately.
+
+```php
+use Aliziodev\ProductCatalog\Events\InventoryAdjusted;
+
+// inside adjust() of Example 1: capture $previous = $record->quantity before the update, then
+event(new InventoryAdjusted($variant, $previous, $newQty, $reason)); // movement defaults to null
 ```
 
 ---

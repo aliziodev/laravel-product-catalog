@@ -137,7 +137,9 @@ $inventory->release($variant, $qty, 'order_cancelled', $order);
 $inventory->commit($variant, $qty, 'order_shipped', $order);
 ```
 
-> Earlier versions of this guide reserved with `$variant->inventoryItem->reserve($qty)` and deducted with `adjust()` on shipment. That never released the hold, so `reserved_quantity` kept growing. If you followed it, see [Upgrading](../README.md#upgrading).
+`reserve()` throws `InventoryException` for a variant whose policy is `Deny`; `Allow` variants are not tracked, so it does nothing for them.
+
+> Earlier versions of this guide reserved with `$variant->inventoryItem->reserve($qty)` and deducted with `adjust()` on shipment. That never released the hold, so `reserved_quantity` kept growing. If you followed it, see [Upgrading](../README.md#upgrading). A negative `adjust()` now refuses to take reserved units at all — it throws `InventoryException` — so ship reserved stock with `commit()`.
 
 ## 6. Low Stock Alert
 
@@ -172,4 +174,4 @@ foreach ($lowStock as $item) {
 | `$item->reserve($qty)` | Increment reserved |
 | `$item->release($qty)` | Decrement reserved |
 | `$inventory->canFulfill($variant, $qty)` | Pre-purchase check |
-| `$inventory->adjust($variant, $delta)` | Deduct or restock |
+| `$inventory->adjust($variant, $delta)` | Restock, or deduct unreserved stock (reserved units ship via `commit()`) |

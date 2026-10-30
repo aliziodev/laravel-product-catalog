@@ -54,6 +54,8 @@ interface InventoryProviderInterface
 
 > **Upgrading a driver written for v1.5 or earlier:** `reserve()`, `release()` and `commit()` were added to the interface in v1.6.0, so a driver that only has the first five methods fails with a fatal error. Add the three methods; if your stock system has no concept of holds, follow Example 1 below. Reject a `$quantity` below 1 in all three, as the built-in `database` driver does.
 
+> **Matching the built-in driver:** the `database` driver throws `InventoryException::purchaseNotAllowed()` from `reserve()` for a variant with `InventoryPolicy::Deny`, and a negative `adjust()` can only take available stock (quantity − reserved) — reserved units leave through `commit()`. If your stock system has purchase policies or holds, apply the same rules so application code behaves the same on every driver.
+
 ---
 
 ## Example 1 — Your Own Inventory Table
@@ -288,6 +290,28 @@ class ErpInventoryProvider implements InventoryProviderInterface
     }
 }
 ```
+
+---
+
+## Dispatching Events
+
+The built-in `database` driver dispatches `InventoryAdjusted`, `InventoryReserved`, `InventoryLowStock` and `InventoryOutOfStock`. If your application listens for them, dispatch the same package events from your driver. They implement `ShouldDispatchAfterCommit`, so you get the same guarantee as the built-in driver: inside a database transaction, listeners run after the outermost transaction commits and never if it rolls back; with no open transaction they run immediately.
+
+```php
+use Aliziodev\ProductCatalog\Events\InventoryAdjusted;
+
+public function adjust(ProductVariant $variant, int $delta, string $reason = '', ?Model $reference = null): void
+{
+    $record = $this->find($variant) ?? throw new \RuntimeException("SKU not found in inventory: {$variant->sku}");
+    $previous = $record->quantity;
+
+    // ... validate and update as in Example 1
+
+    event(new InventoryAdjusted($variant, $previous, $record->quantity, $reason));
+}
+```
+
+The last constructor argument, `movement`, defaults to `null` — leave it out when your system has no `InventoryMovement` record.
 
 ---
 

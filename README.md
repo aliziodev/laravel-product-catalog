@@ -56,6 +56,7 @@ A professional, variant-centric product catalog package for Laravel 12+. Designe
 
 **Catalog**
 - Products with lifecycle status: `draft` → `published` → `archived`
+- Scheduled publishing — a future `published_at` keeps a published product hidden until that moment
 - Product code (`code`) as the parent SKU; per-variant SKUs for child variants
 - Permanent slug routing — URLs stay valid even when the product name changes
 - `ProductSearchBuilder` — fluent catalog-aware search with filters for category, brand, tags, price range, and stock status
@@ -175,6 +176,21 @@ php artisan catalog:install
 
 Run `php artisan migrate` after every update.
 
+### To 1.7.0
+
+**Wider price columns.** The `widen_catalog_variant_price_columns` migration changes `price`, `compare_price` and `cost_price` from `decimal(12,4)` to `decimal(19,4)`. The old type stopped at 99,999,999.9999, which is under Rp 100 juta. Only columns that still have the original definition are changed, and nothing happens on SQLite. On MySQL the change rebuilds the `product_variants` table, so run it at a quiet time if the table is large.
+
+**Behaviour changes**
+
+- A negative `adjust()` throws `InventoryException` when it would take units held by `reserve()`, i.e. when the new quantity would fall below `reserved_quantity`. Ship reserved orders with `commit()`. `set()` still accepts any quantity for stock counts. If you reserve and then deduct with `adjust()` (the flow of the old online-store guide), switch to `commit()`; otherwise the last units of a variant can no longer be shipped.
+- `reserve()` throws `InventoryException` for a variant with the `deny` policy. It used to do nothing, so the order went through.
+- All package events (`InventoryAdjusted`, `InventoryReserved`, `InventoryLowStock`, `InventoryOutOfStock`, `ProductPublished`, `ProductArchived`) are dispatched after the database transaction commits, and dropped if it rolls back. A listener that relied on running inside the same transaction now runs after it.
+- `Product::published()` and `Product::visible()` leave out products whose `published_at` is in the future. The default search listing and the API use `published()`, so they hide those products too. Products with a null `published_at` are not affected. Use `Product::scheduled()` to list scheduled products.
+- `GET /catalog/products/{slug}` leaves out inactive variants, and `ProductResource` / `ProductVariantResource` no longer include `meta`. To include it again, set `PRODUCT_CATALOG_ROUTES_EXPOSE_META=true`, or add `'expose_meta' => true` under `routes` if you published the config.
+- The product relations on `Brand`, `Category`, `Tag`, `ProductVariant` and `ProductOption` return the model set in `product-catalog.model` instead of the base `Product`.
+
+**Scout.** The setup shown in earlier docs, `use ScoutSearchable, Searchable;`, stops with a fatal trait collision. Use the `insteadof` block from [docs/scout-integration.md](docs/scout-integration.md). `toSearchableArray()` now loads its own relations, so run `php artisan scout:import "App\Models\Product"` once to fill the brand, category, tag, SKU and price fields that earlier saves left empty.
+
 ### To 1.6.1
 
 **Schema repair for older installs.** Releases 1.4.1, 1.5.0 and 1.6.0 changed create migrations that had already shipped, so installs created before them never received:
@@ -207,7 +223,8 @@ The new `sync_catalog_schema_for_upgraded_installs` migration adds whatever is m
 // config/product-catalog.php
 return [
 
-    // The Eloquent model used throughout the package (search drivers, API controller).
+    // The Eloquent model used throughout the package (search drivers, API controller,
+    // and the product relations on Brand, Category, Tag, ProductVariant, ProductOption).
     // Override when extending the base Product model in your application.
     // Your model must extend Aliziodev\ProductCatalog\Models\Product.
     'model' => \Aliziodev\ProductCatalog\Models\Product::class,
@@ -239,6 +256,9 @@ return [
         'enabled'    => env('PRODUCT_CATALOG_ROUTES_ENABLED', false),
         'prefix'     => env('PRODUCT_CATALOG_ROUTES_PREFIX', 'catalog'),
         'middleware' => ['api'],
+        // Include product and variant `meta` in API responses. Off by default
+        // because `meta` often holds internal data (supplier codes, reorder points).
+        'expose_meta' => env('PRODUCT_CATALOG_ROUTES_EXPOSE_META', false),
     ],
 ];
 ```
@@ -268,8 +288,13 @@ $product->publish();    // draft → published, fires ProductPublished event
 $product->unpublish();  // published → draft
 $product->archive();    // → archived, fires ProductArchived event
 
+// Scheduled publishing — hidden from published() until published_at passes
+$product->update(['published_at' => now()->addDays(3)]);
+$product->publish();    // keeps the existing published_at; ProductPublished fires now, not at go-live
+
 // State checks
-$product->isPublished();
+$product->isPublished(); // status only — true for a scheduled product too
+$product->isScheduled(); // published, but published_at is still in the future
 $product->isDraft();
 $product->isArchived();
 $product->isSimple();
@@ -337,11 +362,14 @@ use Aliziodev\ProductCatalog\Enums\InventoryReason;
 
 $inventory = ProductCatalog::inventory(); // resolves configured driver
 
-// Set absolute quantity
-$inventory->set($variant, 50);
+// Set absolute quantity — unrestricted, use for stocktakes and corrections
+$inventory->set($variant, 50, InventoryReason::STOCKTAKE);
 
-// Adjust (positive = restock, negative = deduct)
-$inventory->adjust($variant, -5, InventoryReason::SALE, $order); // $order is optional reference model
+// Adjust (positive = restock, negative = deduct) — for unreserved movements:
+// damage, walk-in sale, restock, return. A deduction can only take available
+// stock (quantity − reserved) and throws InventoryException otherwise.
+// Reserved units leave through commit() — see Reservation Lifecycle below.
+$inventory->adjust($variant, -2, InventoryReason::DAMAGE); // optional 4th argument: a reference model
 
 // Query
 $inventory->getQuantity($variant);        // available quantity (total − reserved)
@@ -385,10 +413,13 @@ $inventory->commit($variant, 3, InventoryReason::ORDER_FULFILLED, $order);
 // reserved_quantity: −3, total quantity: −3, available: unchanged
 
 // All three throw InventoryException when the quantity is below 1
-// reserve() throws InventoryException when available stock < requested
+// reserve() throws InventoryException when available stock < requested,
+//           or when the variant's policy is Deny (Allow is a no-op)
 // commit() throws InventoryException when reserved_quantity < requested,
 //          or when total quantity < requested (stock was set below the reservation)
 ```
+
+Ship reserved units with `commit()`, not `adjust()`. A negative `adjust()` can only take available stock and throws `InventoryException` when it would drop `quantity` below `reserved_quantity`, so pending orders keep their units. Use `set()` for stock counts.
 
 ### InventoryReason
 
@@ -464,7 +495,9 @@ $product->tags()->attach($tag);
 
 ```php
 // Status scopes
-Product::published()->get();
+Product::published()->get();  // live now: published_at is null or in the past
+Product::scheduled()->get();  // published, but published_at is still in the future
+Product::visible()->get();    // Published + Private, same published_at rule
 Product::draft()->get();
 
 // Price range (active variants only)
@@ -589,6 +622,8 @@ ProductSearchBuilder::query('laptop')
     ->paginate(20);
 ```
 
+Results are limited to `Product::published()` by default, so drafts and products scheduled for a future `published_at` stay hidden. `->withStatus('published')` behaves the same way.
+
 The default driver is `database` (Eloquent LIKE, no extra dependencies). Switch to `scout` driver for Meilisearch, Algolia, or Typesense — see [docs/scout-integration.md](docs/scout-integration.md).
 
 ```env
@@ -609,8 +644,11 @@ PRODUCT_CATALOG_SEARCH_FULLTEXT=false
 
 When using `scout`, set the top-level `model` key to your application Product model
 that extends the package base model and uses both `Laravel\Scout\Searchable` and
-`Aliziodev\ProductCatalog\Concerns\Searchable`. This same key is read by the database
-search driver and the API controller — configure your extended model once, everywhere.
+`Aliziodev\ProductCatalog\Concerns\Searchable`. Both traits define `toSearchableArray()`
+and `makeAllSearchableUsing()`, so the model needs an `insteadof` block — see
+[docs/scout-integration.md](docs/scout-integration.md). This same key is read by the database
+search driver, the API controller and the package's product relations — configure your
+extended model once, everywhere.
 
 ```php
 // Custom search driver
@@ -660,6 +698,8 @@ GET /catalog/products
 GET /catalog/products/{slug}
 ```
 
+Both endpoints return only products that are live (`Product::published()`). `GET /catalog/products/{slug}` includes active variants only — a variant with `is_active = false` is left out.
+
 ---
 
 ## API Resources
@@ -696,12 +736,13 @@ Response shape:
       "weight": 0.35,
       "length": 30,
       "width": 15,
-      "height": 12,
-      "meta": { "barcode": "8991234567890" }
+      "height": 12
     }
   ]
 }
 ```
+
+`meta` (product and variant) is left out of `ProductResource` and `ProductVariantResource` unless `product-catalog.routes.expose_meta` (`PRODUCT_CATALOG_ROUTES_EXPOSE_META`) is `true`. When it is off — the default — the `meta` key is absent, not `null`. It is off because `meta` often holds internal data such as supplier codes or reorder points.
 
 ---
 
@@ -713,6 +754,10 @@ Response shape:
 | `ProductArchived` | `$product->archive()` |
 | `InventoryAdjusted` | `adjust()`, `set()`, or `commit()` changes total quantity |
 | `InventoryReserved` | `reserve()` or `release()` changes `reserved_quantity` |
+
+All package events — the four above plus `InventoryLowStock` and `InventoryOutOfStock` — implement `ShouldDispatchAfterCommit`. Inside a database transaction, listeners run after the outermost transaction commits, and never if it rolls back; with no open transaction they run immediately. So a listener never runs inside your order transaction or while the inventory row lock is held. `Event::fake()` still records them immediately.
+
+`ProductPublished` fires when `publish()` is called — for a scheduled product that is before it goes live.
 
 ```php
 use Aliziodev\ProductCatalog\Events\ProductPublished;
@@ -753,7 +798,7 @@ Set per `InventoryItem` via `policy` column:
 |---|---|
 | `track` | Checks actual quantity; denies when `quantity <= reserved_quantity` |
 | `allow` | Always in stock — overselling permitted (digital goods, pre-order) |
-| `deny` | Always out of stock — variant is unavailable |
+| `deny` | Always out of stock — variant is unavailable; `reserve()` throws `InventoryException` |
 
 ```php
 use Aliziodev\ProductCatalog\Enums\InventoryPolicy;
@@ -818,47 +863,20 @@ class Product extends BaseProduct implements HasMedia
 }
 ```
 
-> **Important:** Laravel's service container `bind()` does not affect Eloquent relationships.
-> The package's `$variant->product()` is hardcoded to `BaseProduct::class` and will still
-> return the base model. Choose one of the two approaches below.
-
-**Approach A — Simple (recommended for most projects)**
-
-Use `App\Models\Product` in all your app code. When you get a product through a variant relationship and need media, re-query with your model:
+Point the package at your model:
 
 ```php
-// In your controllers / services — always use your extended model
-use App\Models\Product;
-
-$product = Product::with('variants')->findOrFail($id);
-$product->getFirstMediaUrl('featured', 'thumb'); // ✓ works
-
-// When coming from a variant relationship, re-query:
-$product = App\Models\Product::find($variant->product_id);
-$product->getFirstMediaUrl('featured', 'thumb'); // ✓ works
+// config/product-catalog.php
+'model' => \App\Models\Product::class,
 ```
 
-**Approach B — Override the relationship (complete solution)**
-
-Also extend `ProductVariant` to return your `Product`:
+The package's product relations then return your model — `$variant->product`, `$option->product`, `$brand->products`, `$category->products` and `$tag->products` — so media methods work wherever the product comes from:
 
 ```php
-// app/Models/ProductVariant.php
-namespace App\Models;
-
-use Aliziodev\ProductCatalog\Models\ProductVariant as BaseVariant;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
-
-class ProductVariant extends BaseVariant
-{
-    public function product(): BelongsTo
-    {
-        return $this->belongsTo(Product::class); // App\Models\Product
-    }
-}
+$variant->product->getFirstMediaUrl('featured', 'thumb'); // ✓ App\Models\Product
 ```
 
-Then use `App\Models\ProductVariant` everywhere in your app code.
+The class name does not matter (`CatalogProduct` works too): `variants()`, `defaultVariant()` and `options()` always use the `product_id` foreign key.
 
 Upload and retrieve:
 
@@ -984,7 +1002,7 @@ Activate via `.env`:
 PRODUCT_CATALOG_INVENTORY_DRIVER=app
 ```
 
-For more examples (ERP/WMS API, fallback strategy) see [docs/custom-inventory-provider.md](docs/custom-inventory-provider.md).
+For more examples (ERP/WMS API, fallback strategy, dispatching the package events from your driver) see [docs/custom-inventory-provider.md](docs/custom-inventory-provider.md).
 
 ---
 

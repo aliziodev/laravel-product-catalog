@@ -133,6 +133,10 @@ class CreateOrderAction
 }
 ```
 
+> **Events run after commit.** The package inventory events implement `ShouldDispatchAfterCommit`: `InventoryReserved` listeners run once this transaction commits — not inside it, not while the stock row is locked, and not at all if the order rolls back.
+>
+> `reserve()` throws `InventoryException` for a variant with `InventoryPolicy::Deny`. The `canFulfill()` pre-check above already returns `false` for those, so the order fails before anything is written.
+
 ---
 
 ## 3. State 2A — Payment Confirmed (Order Paid)

@@ -19,11 +19,14 @@ A read-only product catalog — filterable, searchable, and routable. Suitable f
 ```php
 // config/product-catalog.php
 'routes' => [
-    'enabled'    => true,
-    'prefix'     => 'catalog',   // GET /catalog/products, GET /catalog/products/{slug}
-    'middleware' => ['api'],
+    'enabled'     => true,
+    'prefix'      => 'catalog',   // GET /catalog/products, GET /catalog/products/{slug}
+    'middleware'  => ['api'],
+    'expose_meta' => false,       // true to include product/variant `meta` in responses
 ],
 ```
+
+The built-in routes list only live products (scheduled ones stay hidden until their `published_at`), and the detail endpoint includes active variants only. `meta` is left out of `ProductResource` / `ProductVariantResource` unless `expose_meta` is `true` — this also applies when you return those resources from your own controller.
 
 Or register your own controller:
 
@@ -156,7 +159,8 @@ foreach ($products as $product) {
 
 | Method / Scope | Description |
 |---|---|
-| `Product::published()` | Filter published products |
+| `Product::published()` | Published and live — a future `published_at` keeps a product hidden |
+| `Product::scheduled()` | Published, but `published_at` is still in the future |
 | `Product::search($term)` | Full-text search |
 | `Product::forBrand($brand)` | Filter by brand |
 | `Product::withTag($tag)` | Filter by tag |
