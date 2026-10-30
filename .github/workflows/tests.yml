@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php: ['8.3', '8.4']
+        php: ['8.3', '8.4', '8.5']
         laravel: ['12.*', '13.*']
 
     name: PHP ${{ matrix.php }} — Laravel ${{ matrix.laravel }}
@@ -56,3 +56,58 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage.xml
+
+  # Runs the suite against a database server. tests/TestCase.php reads the
+  # DB_* variables below; without them the suite uses in-memory SQLite.
+  postgres:
+    runs-on: ubuntu-latest
+    name: PostgreSQL 18 — PHP 8.4 — Laravel 13.*
+
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: catalog
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: catalog
+      DB_USERNAME: postgres
+      DB_PASSWORD: secret
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup PHP 8.4
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, pdo, pdo_pgsql
+          coverage: none
+          tools: composer:v2
+
+      - name: Cache Composer
+        uses: actions/cache@v6
+        with:
+          path: ~/.composer/cache
+          key: composer-php8.4-laravel13.*-${{ hashFiles('composer.json') }}
+          restore-keys: composer-php8.4-laravel13.*-
+
+      - name: Install dependencies
+        run: |
+          composer require "laravel/framework:13.*" --no-update --no-interaction
+          composer update --prefer-dist --no-interaction --no-progress
+
+      - name: Run tests
+        run: vendor/bin/pest
