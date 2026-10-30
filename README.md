@@ -88,7 +88,7 @@ A professional, variant-centric product catalog package for Laravel 12+. Designe
 **Extensibility**
 - Custom inventory driver — integrate your own stock system via a single interface
 - No forced image schema — integrate spatie/laravel-medialibrary or any media solution you prefer
-- Events: `ProductPublished`, `ProductArchived`, `InventoryAdjusted`
+- Events: `ProductPublished`, `ProductArchived`, `InventoryAdjusted`, `InventoryReserved`, `InventoryLowStock`, `InventoryOutOfStock`
 - Configurable table prefix — safe to install alongside any existing schema
 
 ---
@@ -119,7 +119,7 @@ composer require aliziodev/laravel-product-catalog
 ```
 
 ```bash
-php artisan catalog:install
+php artisan catalog:install --migrate
 ```
 
 ```php
@@ -164,11 +164,15 @@ Optionally publish the config:
 php artisan vendor:publish --tag=product-catalog-config
 ```
 
-Or run the interactive installer:
+Or use the installer. It publishes the config and the migrations; `--migrate` also runs `php artisan migrate` (without it, run `migrate` yourself):
 
 ```bash
-php artisan catalog:install
+php artisan catalog:install --migrate
 ```
+
+### AI Assistants
+
+The package ships a [Laravel Boost](https://github.com/laravel/boost) skill in `resources/boost/skills/laravel-product-catalog`. In an app that uses Laravel Boost, run `php artisan boost:install` (or `php artisan boost:update` if Boost is already set up) to make it available to your AI assistant.
 
 ---
 
@@ -454,17 +458,7 @@ InventoryReason::TIMEOUT         // 'timeout'
 InventoryReason::ORDER_FULFILLED // 'order_fulfilled'
 ```
 
-Add your own reason strings to `config/product-catalog.php`:
-
-```php
-'inventory' => [
-    'movement_reasons' => [
-        // built-in reasons ...
-        'promotion',     // custom reason for your app
-        'gift',
-    ],
-],
-```
+The `reason` argument is a free string, stored on the movement record as given. The `inventory.movement_reasons` list in `config/product-catalog.php` mirrors these constants for reference only: the package never reads it, so adding a string there neither registers nor validates it. For app-specific reasons (`'promotion'`, `'gift'`, …) define your own constants and pass them the same way; list them in `movement_reasons` too if you want to validate against it in your own code.
 
 ### Taxonomy
 
@@ -696,9 +690,13 @@ Enable the built-in read-only API routes:
 ```
 GET /catalog/products
 GET /catalog/products/{slug}
+GET /catalog/categories
+GET /catalog/brands
 ```
 
-Both endpoints return only products that are live (`Product::published()`). `GET /catalog/products/{slug}` includes active variants only — a variant with `is_active = false` is left out.
+The product endpoints return only products that are live (`Product::published()`). `GET /catalog/products/{slug}` includes active variants only — a variant with `is_active = false` is left out.
+
+The routes are unnamed, so `route()` cannot generate them. Use `url(config('product-catalog.routes.prefix').'/products')`, or keep `enabled = false` and register your own named routes — see [docs/configuration.md](docs/configuration.md#routes).
 
 ---
 
@@ -748,14 +746,18 @@ Response shape:
 
 ## Events
 
-| Event | Fired when |
-|---|---|
-| `ProductPublished` | `$product->publish()` |
-| `ProductArchived` | `$product->archive()` |
-| `InventoryAdjusted` | `adjust()`, `set()`, or `commit()` changes total quantity |
-| `InventoryReserved` | `reserve()` or `release()` changes `reserved_quantity` |
+| Event | Fired when | Payload |
+|---|---|---|
+| `ProductPublished` | `$product->publish()` | `product` |
+| `ProductArchived` | `$product->archive()` | `product` |
+| `InventoryAdjusted` | `adjust()`, `set()`, or `commit()` changes total quantity | `variant`, `previousQuantity`, `newQuantity`, `reason`, `movement`; `delta()` |
+| `InventoryReserved` | `reserve()` or `release()` changes `reserved_quantity` | see the listener below |
+| `InventoryLowStock` | `adjust()`, `set()` or `reserve()` brings available stock from above `low_stock_threshold` to or below it | `variant`, `availableQuantity`, `threshold`, `movement` |
+| `InventoryOutOfStock` | `adjust()`, `set()` or `reserve()` brings available stock to 0; fired instead of `InventoryLowStock` | `variant`, `movement` |
 
-All package events — the four above plus `InventoryLowStock` and `InventoryOutOfStock` — implement `ShouldDispatchAfterCommit`. Inside a database transaction, listeners run after the outermost transaction commits, and never if it rolls back; with no open transaction they run immediately. So a listener never runs inside your order transaction or while the inventory row lock is held. `Event::fake()` still records them immediately.
+The two stock alerts fire once, on crossing — not again on later operations that stay below the line.
+
+All six events implement `ShouldDispatchAfterCommit`. Inside a database transaction, listeners run after the outermost transaction commits, and never if it rolls back; with no open transaction they run immediately. So a listener never runs inside your order transaction or while the inventory row lock is held. `Event::fake()` still records them immediately.
 
 `ProductPublished` fires when `publish()` is called — for a scheduled product that is before it goes live.
 
@@ -954,13 +956,22 @@ class AppInventoryProvider implements InventoryProviderInterface
         );
     }
 
+    // This table has no reserved column, so holds are not stored:
+    // reserve() only checks availability and commit() deducts the stock.
+
     public function reserve(
         ProductVariant $variant,
         int $quantity,
         string $reason = '',
         ?Model $reference = null,
     ): void {
-        // implement reservation against your external system
+        if ($quantity < 1) {
+            throw InventoryException::invalidQuantity($quantity);
+        }
+
+        if (! $this->canFulfill($variant, $quantity)) {
+            throw InventoryException::insufficientStock($quantity, $this->getQuantity($variant));
+        }
     }
 
     public function release(
@@ -969,7 +980,9 @@ class AppInventoryProvider implements InventoryProviderInterface
         string $reason = '',
         ?Model $reference = null,
     ): void {
-        // implement release against your external system
+        if ($quantity < 1) {
+            throw InventoryException::invalidQuantity($quantity);
+        }
     }
 
     public function commit(
@@ -978,7 +991,11 @@ class AppInventoryProvider implements InventoryProviderInterface
         string $reason = '',
         ?Model $reference = null,
     ): void {
-        // implement commit (reservation → permanent deduction) against your external system
+        if ($quantity < 1) {
+            throw InventoryException::invalidQuantity($quantity);
+        }
+
+        $this->adjust($variant, -$quantity, $reason, $reference);
     }
 }
 ```
@@ -1033,28 +1050,29 @@ abstract class TestCase extends OrchestraTestCase
 }
 ```
 
-For tests that need the inventory facade, swap to the `null` driver so no DB records are required:
+For tests that go through the inventory facade, swap to the `null` driver: every variant is in stock and the write methods are no-ops, so no inventory records are required:
 
 ```php
 // tests/Feature/CheckoutTest.php
-use Aliziodev\ProductCatalog\Models\Product;
+use Aliziodev\ProductCatalog\Facades\ProductCatalog;
 use Aliziodev\ProductCatalog\Models\ProductVariant;
-use Aliziodev\ProductCatalog\Enums\InventoryPolicy;
 
 it('can add item to cart', function () {
+    config(['product-catalog.inventory.driver' => 'null']);
+
     $variant = ProductVariant::factory()->create(['price' => 150000]);
 
-    // Use Allow policy — no inventory record needed
-    $variant->inventoryItem()->create(['quantity' => 0, 'policy' => InventoryPolicy::Allow]);
-
+    expect(ProductCatalog::inventory()->canFulfill($variant, 5))->toBeTrue();
     // ... your test assertions
 });
 ```
 
-To override the inventory driver in a specific test:
+The driver does not change `Product::inStock()`, which reads `inventoryItem` rows directly. When a test needs that scope, or needs the `database` driver, give the variant an always-available item instead:
 
 ```php
-config(['product-catalog.inventory.driver' => 'null']);
+use Aliziodev\ProductCatalog\Enums\InventoryPolicy;
+
+$variant->inventoryItem()->create(['quantity' => 0, 'policy' => InventoryPolicy::Allow]);
 ```
 
 ---

@@ -8,9 +8,11 @@ namespace Aliziodev\ProductCatalog\Enums;
  * Preset reason strings for inventory movements.
  *
  * Use these constants as the `reason` argument to keep audit trails
- * consistent across your application. Add your own reason strings in
- * config('product-catalog.inventory.movement_reasons') and reference
- * them via your own constants — do not pass free-form strings.
+ * consistent across your application. The reason is stored as given and
+ * is not validated, so define your own constants for app-specific reasons
+ * instead of scattering free-form strings.
+ * config('product-catalog.inventory.movement_reasons') is a reference list
+ * only; nothing in the package reads it.
  *
  * Mapping guide (type → reasons):
  *   Restock    → PURCHASE, RETURN_ITEM

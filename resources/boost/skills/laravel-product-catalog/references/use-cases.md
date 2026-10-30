@@ -79,6 +79,8 @@ $product = Product::published()
 $matrix = [];
 foreach ($product->variants as $variant) {
     $key = $variant->optionValues->pluck('id')->sort()->join('-');
+    $item = $variant->inventoryItem; // eager-loaded, so no query per variant
+
     $matrix[$key] = [
         'variant_id'          => $variant->id,
         'sku'                 => $variant->sku,
@@ -86,8 +88,10 @@ foreach ($product->variants as $variant) {
         'compare_price'       => $variant->compare_price ? (float) $variant->compare_price : null,
         'is_on_sale'          => $variant->isOnSale(),
         'discount_percentage' => $variant->discountPercentage(),
-        'in_stock'            => $variant->inventoryItem?->isInStock() ?? false,
-        'available_quantity'  => $variant->inventoryItem?->availableQuantity() ?? 0,
+        // Same rule as the database driver's isInStock(): deny never, allow always, track when available
+        'in_stock'            => $item !== null && $item->isPurchaseAllowed()
+                                 && (! $item->isTracked() || $item->availableQuantity() > 0),
+        'available_quantity'  => $item?->availableQuantity() ?? 0,
     ];
 }
 ```
@@ -302,4 +306,19 @@ $digitalVariant->inventoryItem()->create([
 // Display correctly for mixed product
 $badge = $variant->inventoryItem->policy === InventoryPolicy::Allow
     ? 'Unlimited Download'
-    : "Stock: {$variant->inventoryItem->availableQuant
+    : "Stock: {$variant->inventoryItem->availableQuantity()}";
+
+// No is_digital flag — use the policy (plus missing weight) as the signal, or store a flag in `meta`
+$isDigital = $variant->inventoryItem?->policy === InventoryPolicy::Allow && $variant->weight === null;
+
+// inStock() covers both: Allow variants always count, Track variants need available stock
+Product::published()->inStock()->get();
+
+// Shipping weight — physical variants only
+$totalWeight = $order->items->sum(
+    fn ($item) => (float) (ProductVariant::find($item->variant_id)?->weight ?? 0) * $item->quantity
+);
+```
+
+> Keep customer-specific data (download tokens, expiry) on your order items, not in the
+> variant `meta` — that is catalog metadata. See `docs/digital-physical-listing.md` for the full guide.

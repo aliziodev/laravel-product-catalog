@@ -60,6 +60,8 @@ $matrix = [];
 
 foreach ($product->variants as $variant) {
     $key = $variant->optionValues->pluck('id')->sort()->join('-');
+    $item = $variant->inventoryItem; // eager-loaded, so no query per variant
+
     $matrix[$key] = [
         'variant_id'          => $variant->id,
         'sku'                 => $variant->sku,
@@ -67,8 +69,10 @@ foreach ($product->variants as $variant) {
         'compare_price'       => $variant->compare_price ? (float) $variant->compare_price : null,
         'is_on_sale'          => $variant->isOnSale(),
         'discount_percentage' => $variant->discountPercentage(),
-        'in_stock'            => $variant->inventoryItem?->isInStock() ?? false,
-        'available_quantity'  => $variant->inventoryItem?->availableQuantity() ?? 0,
+        // Same rule as the database driver's isInStock(): deny never, allow always, track when available
+        'in_stock'            => $item !== null && $item->isPurchaseAllowed()
+                                 && (! $item->isTracked() || $item->availableQuantity() > 0),
+        'available_quantity'  => $item?->availableQuantity() ?? 0,
     ];
 }
 ```
