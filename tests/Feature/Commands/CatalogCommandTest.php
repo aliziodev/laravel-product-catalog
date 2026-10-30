@@ -8,6 +8,21 @@ use Aliziodev\ProductCatalog\Models\InventoryItem;
 use Aliziodev\ProductCatalog\Models\Product;
 use Aliziodev\ProductCatalog\Models\ProductVariant;
 use Aliziodev\ProductCatalog\Models\Tag;
+use Illuminate\Support\Facades\File;
+
+/**
+ * catalog:install publishes into the Testbench skeleton under vendor/, which
+ * outlives the test run. Copies left by an older checkout would then be run
+ * by catalog:install --migrate, so clear them before and after every test.
+ */
+function removePublishedCatalogFiles(): void
+{
+    File::delete(config_path('product-catalog.php'));
+    File::delete(File::glob(database_path('migrations/*_catalog_*.php')));
+}
+
+beforeEach(fn () => removePublishedCatalogFiles());
+afterEach(fn () => removePublishedCatalogFiles());
 
 // --- catalog:install ---
 
