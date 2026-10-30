@@ -121,6 +121,15 @@ it('respects per_page limit up to 50', function () {
         ->assertJsonPath('meta.per_page', 50);
 });
 
+it('falls back to the default page size when per_page is below 1 or not a number', function (string $perPage) {
+    Product::factory()->count(20)->create(['status' => ProductStatus::Published, 'published_at' => now()]);
+
+    $this->getJson('/catalog/products?per_page='.$perPage)
+        ->assertOk()
+        ->assertJsonCount(15, 'data')
+        ->assertJsonPath('meta.per_page', 15);
+})->with(['-1', '0', 'abc']);
+
 it('returns a single product by slug with variants', function () {
     $product = Product::factory()->create([
         'status' => ProductStatus::Published,
