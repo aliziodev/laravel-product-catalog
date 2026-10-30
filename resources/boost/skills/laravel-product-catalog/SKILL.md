@@ -710,15 +710,17 @@ synced via a model observer.
 
 ### Database Indexes
 
-The package ships these named indexes out of the box:
+The package ships these indexes out of the box (names follow `{table}_{column}_index`, so they carry the table prefix):
 
 | Table | Column | Index | Created in | Usage |
 |-------|--------|-------|------------|-------|
-| `catalog_products` | `name` | `idx_catalog_products_name` | `2026_04_01_000004_create_catalog_products_table` | `ORDER BY name`, prefix LIKE searches |
-| `catalog_inventory_items` | `policy` | `idx_catalog_inventory_items_policy` | `2026_04_01_000011_create_catalog_inventory_items_table` | `inStock()` scope, `lowStock()` scope |
+| `catalog_products` | `name` | `catalog_products_name_index` | `2026_04_01_000004_create_catalog_products_table` | `ORDER BY name`, prefix LIKE searches |
+| `catalog_inventory_items` | `policy` | `catalog_inventory_items_policy_index` | `2026_04_01_000011_create_catalog_inventory_items_table` | `inStock()` scope, `lowStock()` scope |
 
 Installs created before v1.5.0 get both from `2026_10_30_000001_sync_catalog_schema_for_upgraded_installs`,
-which adds them only when missing.
+which adds them only when missing. Releases before v1.7.1 named them `idx_catalog_products_name` and
+`idx_catalog_inventory_items_policy`, ignoring the prefix; `2026_10_31_000001_prefix_catalog_index_names`
+renames them, so two prefixes can share one PostgreSQL or SQLite schema.
 
 ---
 
