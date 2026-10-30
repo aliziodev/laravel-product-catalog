@@ -65,8 +65,11 @@ class DatabaseInventoryProvider implements InventoryProviderInterface
             $previous = $item->quantity;
             $newQuantity = $previous + $delta;
 
-            if ($newQuantity < 0) {
-                throw InventoryException::insufficientStock(abs($delta), $previous);
+            // Units held by reserve() belong to pending orders. Taking them here would
+            // let commit() fail later, so a deduction may only use available stock.
+            // set() stays unrestricted for stock counts and corrections.
+            if ($delta < 0 && $newQuantity < $item->reserved_quantity) {
+                throw InventoryException::insufficientStock(abs($delta), $item->availableQuantity());
             }
 
             $availableBefore = max(0, $previous - $item->reserved_quantity);
