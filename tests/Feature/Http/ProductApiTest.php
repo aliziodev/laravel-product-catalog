@@ -7,6 +7,7 @@ use Aliziodev\ProductCatalog\Enums\ProductType;
 use Aliziodev\ProductCatalog\Models\Brand;
 use Aliziodev\ProductCatalog\Models\Category;
 use Aliziodev\ProductCatalog\Models\Product;
+use Aliziodev\ProductCatalog\Models\ProductVariant;
 use Aliziodev\ProductCatalog\Models\Tag;
 
 it('returns paginated published products', function () {
@@ -201,4 +202,49 @@ it('product response contains expected resource fields', function () {
         ->assertJsonStructure([
             'data' => ['id', 'name', 'slug', 'type', 'status', 'description', 'short_description', 'featured_image_path', 'meta_title', 'meta_description', 'published_at', 'brand', 'primary_category', 'tags', 'variants'],
         ]);
+});
+
+it('leaves inactive variants out of the product detail', function () {
+    $product = Product::factory()->create(['status' => ProductStatus::Published, 'published_at' => now()]);
+    $active = ProductVariant::factory()->create(['product_id' => $product->id, 'is_active' => true]);
+    ProductVariant::factory()->create(['product_id' => $product->id, 'is_active' => false]);
+
+    $this->getJson('/catalog/products/'.$product->slug)
+        ->assertOk()
+        ->assertJsonCount(1, 'data.variants')
+        ->assertJsonPath('data.variants.0.id', $active->id);
+});
+
+it('leaves product and variant meta out of API responses by default', function () {
+    $product = Product::factory()->create([
+        'status' => ProductStatus::Published,
+        'published_at' => now(),
+        'meta' => ['reorder_point' => 10],
+    ]);
+    ProductVariant::factory()->create(['product_id' => $product->id, 'meta' => ['supplier_code' => 'SUP-001']]);
+
+    $this->getJson('/catalog/products')
+        ->assertOk()
+        ->assertJsonMissingPath('data.0.meta');
+
+    $this->getJson('/catalog/products/'.$product->slug)
+        ->assertOk()
+        ->assertJsonMissingPath('data.meta')
+        ->assertJsonMissingPath('data.variants.0.meta');
+});
+
+it('includes meta when routes.expose_meta is on', function () {
+    config(['product-catalog.routes.expose_meta' => true]);
+
+    $product = Product::factory()->create([
+        'status' => ProductStatus::Published,
+        'published_at' => now(),
+        'meta' => ['format' => 'paperback'],
+    ]);
+    ProductVariant::factory()->create(['product_id' => $product->id, 'meta' => ['pages' => 320]]);
+
+    $this->getJson('/catalog/products/'.$product->slug)
+        ->assertOk()
+        ->assertJsonPath('data.meta.format', 'paperback')
+        ->assertJsonPath('data.variants.0.meta.pages', 320);
 });

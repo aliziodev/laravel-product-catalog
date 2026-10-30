@@ -25,7 +25,7 @@ class ProductVariantResource extends JsonResource
             'width' => $this->width !== null ? (float) $this->width : null,
             'height' => $this->height !== null ? (float) $this->height : null,
             'position' => $this->position,
-            'meta' => $this->meta,
+            'meta' => $this->when((bool) config('product-catalog.routes.expose_meta', false), $this->meta),
         ];
     }
 }
