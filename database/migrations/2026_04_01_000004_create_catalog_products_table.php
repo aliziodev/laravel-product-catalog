@@ -44,7 +44,10 @@ return new class extends Migration
             $table->index(['status', 'published_at']);
             // Speeds up ORDER BY name and prefix/exact LIKE searches.
             // Note: leading-wildcard LIKE ("%term%") cannot use a B-tree index.
-            $table->index('name', 'idx_catalog_products_name');
+            // Default name ({prefix}products_name_index). Releases before 1.7.1 used
+            // the fixed name idx_catalog_products_name, which ignored the prefix;
+            // 2026_10_31_000001_prefix_catalog_index_names renames it on those installs.
+            $table->index('name');
         });
     }
 

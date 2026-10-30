@@ -21,7 +21,10 @@ return new class extends Migration
             $table->string('policy')->default('track');
             $table->timestamps();
             // Speeds up inStock() and lowStock() scopes that filter by policy value.
-            $table->index('policy', 'idx_catalog_inventory_items_policy');
+            // Default name ({prefix}inventory_items_policy_index). Releases before 1.7.1
+            // used the fixed name idx_catalog_inventory_items_policy, which ignored the
+            // prefix; 2026_10_31_000001_prefix_catalog_index_names renames it on those installs.
+            $table->index('policy');
         });
     }
 

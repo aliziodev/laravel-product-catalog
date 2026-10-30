@@ -12,11 +12,12 @@ use Illuminate\Support\Facades\Schema;
  * Some releases changed create migrations that had already shipped, so installs
  * that ran those migrations earlier never received the change:
  *  - v1.4.1: brands.logo_url renamed to logo_path
- *  - v1.5.0: idx_catalog_products_name and idx_catalog_inventory_items_policy
+ *  - v1.5.0: indexes on products.name and inventory_items.policy
  *  - v1.6.0: inventory_movements.reserved_before and reserved_after
  *
  * Every step checks the current schema first, so on a fresh install this
- * migration changes nothing.
+ * migration changes nothing. The two indexes are looked up by column, because
+ * their name changed in 1.7.1 (see 2026_10_31_000001_prefix_catalog_index_names).
  */
 return new class extends Migration
 {
@@ -34,17 +35,17 @@ return new class extends Migration
 
         $products = $prefix.'products';
 
-        if (! Schema::hasIndex($products, 'idx_catalog_products_name')) {
+        if (! Schema::hasIndex($products, ['name'])) {
             Schema::table($products, function (Blueprint $table) {
-                $table->index('name', 'idx_catalog_products_name');
+                $table->index('name');
             });
         }
 
         $inventoryItems = $prefix.'inventory_items';
 
-        if (! Schema::hasIndex($inventoryItems, 'idx_catalog_inventory_items_policy')) {
+        if (! Schema::hasIndex($inventoryItems, ['policy'])) {
             Schema::table($inventoryItems, function (Blueprint $table) {
-                $table->index('policy', 'idx_catalog_inventory_items_policy');
+                $table->index('policy');
             });
         }
 
