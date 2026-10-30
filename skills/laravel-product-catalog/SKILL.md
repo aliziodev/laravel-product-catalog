@@ -52,9 +52,10 @@ php artisan vendor:publish --tag=product-catalog-config  # optional
     'driver' => env('PRODUCT_CATALOG_SEARCH_DRIVER', 'database'), // 'database' | 'scout' | custom
 ],
 'routes' => [
-    'enabled'    => env('PRODUCT_CATALOG_ROUTES_ENABLED', false),
-    'prefix'     => 'catalog',
-    'middleware' => ['api'],
+    'enabled'     => env('PRODUCT_CATALOG_ROUTES_ENABLED', false),
+    'prefix'      => 'catalog',
+    'middleware'  => ['api'],
+    'expose_meta' => env('PRODUCT_CATALOG_ROUTES_EXPOSE_META', false), // include `meta` in API resources
 ],
 ```
 
@@ -63,8 +64,10 @@ php artisan vendor:publish --tag=product-catalog-config  # optional
 > ⚠️ **Scout pitfall:** `ScoutSearchDriver` does **not** use the package base `Product`
 > model directly. When enabling Scout, set the top-level `product-catalog.model` to your
 > application Product model that extends the package base model and uses both
-> `Laravel\Scout\Searchable` and the package `Concerns\Searchable` trait. This same key
-> is also used by the database search driver and the API controller.
+> `Laravel\Scout\Searchable` and the package `Concerns\Searchable` trait — with an
+> `insteadof` block (see ScoutSearchDriver below). This same key is also used by the
+> database search driver, the API controller, and the product relations
+> (`Brand/Category/Tag::products()`, `ProductVariant/ProductOption::product()`).
 
 ---
 
@@ -117,17 +120,26 @@ $product->unpublish();    // published → draft
 $product->archive();      // → archived (fires ProductArchived event)
 $product->makePrivate();  // → private (live but not publicly listed)
 
-$product->isPublished();
+// Scheduled publishing — set a future published_at, then publish()
+$product->update(['published_at' => now()->addDays(3)]);
+$product->publish();      // keeps the existing published_at; ProductPublished fires now, not at go-live
+
+$product->isPublished();  // status only — also true for a scheduled product
+$product->isScheduled();  // Published + published_at in the future
 $product->isDraft();
 $product->isArchived();
 $product->isPrivate();
 $product->isLive();       // true for Published OR Private
 
 // Status scopes
-Product::published()->get();  // public storefront
-Product::visible()->get();    // Published + Private (authenticated storefront)
+Product::published()->get();  // public storefront — published_at null or <= now()
+Product::scheduled()->get();  // Published with published_at in the future
+Product::visible()->get();    // Published + Private (authenticated storefront), same published_at rule
 Product::private()->get();    // Private only
 ```
+
+> A future `published_at` hides a Published product from `published()`, `visible()`, the
+> default `ProductSearchBuilder` listing and the API. A null `published_at` counts as live.
 
 ---
 
@@ -196,7 +208,7 @@ $variant->inventoryItem()->create([
 |--------|-----------|
 | `Track` | Checks actual stock; denies when `quantity <= reserved_quantity` |
 | `Allow` | Always in stock — overselling permitted (digital, pre-order) |
-| `Deny`  | Always out of stock — variant unavailable |
+| `Deny`  | Always out of stock — variant unavailable; `reserve()` throws `InventoryException::purchaseNotAllowed()` |
 
 > ⚠️ **Critical pitfall:** `Product::inStock()` uses `whereHas('inventoryItem', ...)`.
 > Variants **without** an `inventoryItem` row are **excluded** from this scope,
@@ -213,12 +225,17 @@ $inventory->isInStock($variant);           // bool
 $inventory->canFulfill($variant, 10);      // bool
 
 // Write (all run inside DB::transaction + lockForUpdate — race-condition safe)
-$inventory->set($variant, 50, InventoryReason::STOCKTAKE);
-$inventory->adjust($variant, -5, InventoryReason::SALE, $order);    // − deduct / + restock
-$inventory->reserve($variant, 5, InventoryReason::ORDER_PLACED, $order);   // soft-hold
+$inventory->set($variant, 50, InventoryReason::STOCKTAKE);              // absolute, unrestricted (counts, corrections)
+$inventory->adjust($variant, -2, InventoryReason::DAMAGE);             // − deduct available stock only / + restock
+$inventory->reserve($variant, 5, InventoryReason::ORDER_PLACED, $order);   // soft-hold; throws for Deny
 $inventory->release($variant, 5, InventoryReason::ORDER_CANCELLED, $order); // undo reserve
 $inventory->commit($variant, 5, InventoryReason::ORDER_FULFILLED, $order);  // reserve → deduct
 ```
+
+> ⚠️ **`adjust()` cannot consume reserved stock.** A negative `adjust()` throws
+> `InventoryException::insufficientStock()` when the new quantity would drop below
+> `reserved_quantity`. Ship reserved units with `commit()`; use `adjust()` for unreserved
+> movements (damage, walk-in sale, restock, return) and `set()` for stocktakes.
 
 ### Reservation Lifecycle
 
@@ -232,7 +249,7 @@ reserve()  →  commit()    (order fulfilled — quantity deducted permanently)
 | `reserve(5)` | unchanged | +5 | −5 |
 | `release(5)` | unchanged | −5 | +5 |
 | `commit(5)` | −5 | −5 | unchanged |
-| `adjust(-5)` | −5 | unchanged | −5 |
+| `adjust(-5)` | −5 | unchanged | −5 (only if ≥ 5 available, else throws) |
 
 ### InventoryItem Helpers (read-only)
 
@@ -283,7 +300,7 @@ $product->tags()->attach($tag);
 
 ```php
 // Status scopes
-Product::published()->get();
+Product::published()->get();   // live now (hides scheduled products)
 Product::draft()->get();
 
 // Stock
@@ -316,7 +333,7 @@ ProductSearchBuilder::query('kemeja')
     ->forBrand('stylehouse')
     ->priceBetween(50_000, 500_000)
     ->onlyInStock()
-    ->withStatus('published')
+    ->withStatus('published')   // the default; uses published(), so scheduled products are hidden
     ->sortBy('price')
     ->sortAscending()
     ->paginate(24);
@@ -340,9 +357,49 @@ use Laravel\Scout\Searchable as ScoutSearchable;
 
 class Product extends BaseProduct
 {
-    use ScoutSearchable, Searchable;
+    use ScoutSearchable, Searchable {
+        Searchable::toSearchableArray insteadof ScoutSearchable;
+        Searchable::makeAllSearchableUsing insteadof ScoutSearchable;
+    }
+
+    /** Keep drafts and archived products out of the index. */
+    public function shouldBeSearchable(): bool
+    {
+        return $this->isPublished();
+    }
 }
 ```
+
+> ⚠️ **Never write a plain `use ScoutSearchable, Searchable;`** — both traits define
+> `toSearchableArray()` and `makeAllSearchableUsing()`, and PHP stops with a fatal
+> *"Trait method ... has not been applied ... because of collision"*. `use` order does not
+> resolve it; the `insteadof` lines do.
+>
+> To add index fields, alias the package method — `parent::toSearchableArray()` does not
+> exist on the base Product and throws `BadMethodCallException`:
+>
+> ```php
+> use ScoutSearchable, Searchable {
+>     Searchable::toSearchableArray insteadof ScoutSearchable;
+>     Searchable::makeAllSearchableUsing insteadof ScoutSearchable;
+>     Searchable::toSearchableArray as catalogSearchableArray;
+> }
+>
+> public function toSearchableArray(): array
+> {
+>     return array_merge($this->catalogSearchableArray(), [/* extra fields */]);
+> }
+> ```
+>
+> - `shouldBeSearchable()` goes in the app model, not the package trait (adding it to the
+>   trait would collide with Scout again). It checks status only, not `published_at` —
+>   nothing saves the model when a scheduled time passes, so `ScoutSearchDriver` hides
+>   scheduled products at query time through `published()`.
+> - With only published products indexed, `ScoutSearchDriver` + `->withStatus('draft')`
+>   finds nothing — use the database driver for admin screens.
+> - `toSearchableArray()` loads missing `brand`, `primaryCategory`, `categories`, `tags`,
+>   `variants` itself, so a single model save indexes the full document;
+>   `makeAllSearchableUsing()` eager-loads them for `scout:import`.
 
 ```php
 use Aliziodev\ProductCatalog\Search\ProductSearchBuilder;
@@ -383,6 +440,9 @@ PRODUCT_CATALOG_ROUTES_ENABLED=true
 # GET /catalog/products/{slug}
 ```
 
+Both endpoints return live products only (`published()`). The `{slug}` endpoint includes
+active variants only (`is_active = false` variants are left out).
+
 ---
 
 ## API Resources
@@ -393,6 +453,11 @@ use Aliziodev\ProductCatalog\Http\Resources\ProductResource;
 $product = Product::with(['brand', 'primaryCategory', 'tags', 'variants'])->findOrFail($id);
 return ProductResource::make($product);
 ```
+
+> `meta` (product and variant) is omitted from `ProductResource` / `ProductVariantResource`
+> unless `product-catalog.routes.expose_meta` is `true` (default `false`). When off, the
+> `meta` key is absent, not `null`. It defaults off because `meta` often holds internal
+> data (supplier codes, `reorder_point`, `lead_time_days`).
 
 Extend to add custom fields:
 ```php
@@ -421,6 +486,12 @@ class CatalogProductResource extends ProductResource
 | `InventoryOutOfStock` | When available drops to 0 | `variant`, `movement` |
 
 > `InventoryLowStock` and `InventoryOutOfStock` fire **on crossing** only, not on every subsequent operation below the threshold. `InventoryOutOfStock` takes precedence — both never fire for the same operation.
+>
+> All six events implement `ShouldDispatchAfterCommit`: inside a DB transaction, listeners
+> run after the outermost transaction commits and never if it rolls back; with no open
+> transaction they run immediately. Listeners therefore never run inside the order
+> transaction or while the inventory row lock is held. `Event::fake()` still records them
+> immediately. `ProductPublished` fires on `publish()`, not when a scheduled product goes live.
 
 ```php
 use Aliziodev\ProductCatalog\Events\ProductPublished;
@@ -465,6 +536,10 @@ Activate via `.env`:
 PRODUCT_CATALOG_INVENTORY_DRIVER=app
 ```
 
+Dispatch the package events (`InventoryAdjusted`, `InventoryReserved`, …) from a custom driver
+when the app listens for them — they already implement `ShouldDispatchAfterCommit`, so the
+same after-commit guarantee holds.
+
 See `references/inventory.md` for full examples (ERP API, fallback strategy).
 
 ---
@@ -477,9 +552,12 @@ See `references/inventory.md` for full examples (ERP API, fallback strategy).
 4. **Never update `route_key`** — it is the permanent slug identifier. Changing it breaks all existing links.
 5. **Soft-deleted Brand/Category** — `$product->brand` returns `null`. Handle gracefully: `$product->brand?->name ?? 'No Brand'`.
 6. **Soft-deleted Tag pivot** — the pivot row in `catalog_product_tags` persists after soft delete. Clean up in the `Tag::forceDeleted` event if needed.
-7. **`Product::search()` is not the Scout entrypoint by itself** — for Scout integration, use your app Product model with `ScoutSearchable` and set the top-level `product-catalog.model` correctly.
+7. **`Product::search()` is not the Scout entrypoint by itself** — for Scout integration, use your app Product model with `ScoutSearchable` + the package `Searchable` (resolved with `insteadof`) and set the top-level `product-catalog.model` correctly.
 8. **Manual slug override can throw `ProductCatalogException`** — setting `slug` explicitly on `create` or `update` will throw `ProductCatalogException::duplicateSlug()` if the slug is already taken. Auto-generated slugs (no `slug` field set) are always unique and never throw.
 9. **`catalog:seed-demo` is idempotent** — safe to run multiple times; uses `firstOrCreate` and skips existing records.
+10. **Ship reserved stock with `commit()`, not `adjust()`** — a negative `adjust()` throws when it would dip into `reserved_quantity`.
+11. **A future `published_at` hides a Published product** — `published()`, `visible()`, search and the API skip it until then; `isPublished()` still returns `true` (use `isScheduled()`).
+12. **`meta` is not in API output by default** — enable `routes.expose_meta` only if nothing internal is stored in `meta`.
 
 ---
 
@@ -565,12 +643,16 @@ foreach ($products as $p) {
 
 #### Product detail page (show endpoint)
 
-Always include `variants.inventoryItem` — without it, every `->inventoryItem` access in your view fires a query:
+Always eager-load `inventoryItem` on the variants — without it, every `->inventoryItem` access in your view fires a query. The built-in show endpoint also limits variants to active ones:
 
 ```php
-// ✅ Correct eager-load for a product detail page
+// ✅ Correct eager-load for a product detail page (same as the built-in show endpoint)
 Product::published()
-    ->with(['brand', 'primaryCategory', 'tags', 'variants.inventoryItem', 'options.values'])
+    ->with([
+        'brand', 'primaryCategory', 'tags',
+        'variants' => fn ($q) => $q->active()->with('inventoryItem'),
+        'options.values',
+    ])
     ->bySlug($slug)
     ->firstOrFail();
 ```

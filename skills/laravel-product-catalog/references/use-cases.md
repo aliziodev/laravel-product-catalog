@@ -143,6 +143,10 @@ Order SHIPPED  → (no further inventory change)
 ```
 
 > All driver write methods run inside `DB::transaction + lockForUpdate` — no race condition.
+> Package events implement `ShouldDispatchAfterCommit`, so `InventoryReserved` / `InventoryAdjusted`
+> listeners run after the order transaction commits (never on rollback), not inside it.
+> `reserve()` throws for a `Deny` variant; the `canFulfill()` pre-check below already rejects those.
+> Ship reserved units with `commit()` — a negative `adjust()` cannot take reserved stock.
 > See `docs/ecommerce-simple.md` for the full end-to-end guide.
 
 ### CreateOrderAction
@@ -262,6 +266,9 @@ foreach ($products as $product) {
         echo $variant->meta['barcode'] ?? null;
     }
 }
+
+// Internal data in `meta` (supplier codes, reorder_point, lead_time_days) is safe with the
+// built-in API: resources omit `meta` unless `routes.expose_meta` is true — keep it off here.
 
 // Filter by product code prefix
 Product::where('code', 'LIKE', 'WM-%')->get();

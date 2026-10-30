@@ -8,11 +8,12 @@ Quick lookup for all scopes, methods, enums, events, exceptions, and DB tables.
 
 | Scope | Description |
 |-------|-------------|
-| `Product::published()` | Status = published |
+| `Product::published()` | Status = published AND (`published_at` null OR <= now()) — hides scheduled products |
+| `Product::scheduled()` | Status = published AND `published_at` > now() |
 | `Product::draft()` | Status = draft |
 | `Product::archived()` | Status = archived |
 | `Product::private()` | Status = private |
-| `Product::visible()` | Status = published OR private (authenticated storefronts) |
+| `Product::visible()` | Status = published OR private (authenticated storefronts), same `published_at` rule as `published()` |
 | `Product::inStock()` | Has at least one purchasable active variant (requires inventoryItem row!) |
 | `Product::search($term)` | Local Eloquent scope search: name, code, short_description, variant SKUs |
 | `Product::forBrand($brand)` | Filter by brand model instance |
@@ -23,11 +24,12 @@ Quick lookup for all scopes, methods, enums, events, exceptions, and DB tables.
 
 | Method | Return | Description |
 |--------|--------|-------------|
-| `$product->publish()` | void | draft → published; fires `ProductPublished` |
+| `$product->publish()` | void | draft → published; sets `published_at` to now unless already set (a future value schedules it); fires `ProductPublished` immediately |
 | `$product->unpublish()` | void | published → draft |
 | `$product->archive()` | void | → archived; fires `ProductArchived` |
 | `$product->makePrivate()` | void | → private (live but not publicly listed) |
-| `$product->isPublished()` | bool | |
+| `$product->isPublished()` | bool | Status only — also true for a scheduled product |
+| `$product->isScheduled()` | bool | Published AND `published_at` in the future |
 | `$product->isDraft()` | bool | |
 | `$product->isArchived()` | bool | |
 | `$product->isPrivate()` | bool | |
@@ -52,6 +54,11 @@ $product->categories()        // BelongsToMany Category
 $product->tags()              // BelongsToMany Tag
 ```
 
+`variants()`, `defaultVariant()` and `options()` use an explicit `product_id` foreign key, so an
+extended model with any class name (e.g. `CatalogProduct`) works. The reverse relations —
+`$brand->products()`, `$category->products()`, `$tag->products()`, `$variant->product()`,
+`$option->product()` — return the configured `product-catalog.model` class.
+
 ---
 
 ## ProductVariant — Methods
@@ -65,7 +72,7 @@ $product->tags()              // BelongsToMany Tag
 ## ProductVariant — Relationships
 
 ```php
-$variant->product()           // BelongsTo Product
+$variant->product()           // BelongsTo the configured product-catalog.model
 $variant->inventoryItem()     // HasOne InventoryItem
 $variant->optionValues()      // BelongsToMany ProductOptionValue
 $variant->movements()         // HasMany InventoryMovement
@@ -96,14 +103,18 @@ $inv->isInStock($variant)                                       // bool
 $inv->canFulfill($variant, $qty)                                // bool
 
 // Write — all run inside DB::transaction + lockForUpdate (race-condition safe)
-$inv->adjust($variant, $delta, $reason, $reference)             // void — + restock, − deduct
-$inv->set($variant, $qty, $reason, $reference)                  // void — absolute quantity
-$inv->reserve($variant, $qty, $reason, $reference)              // void — soft-hold (reserved_quantity++)
+$inv->adjust($variant, $delta, $reason, $reference)             // void — + restock, − deduct (available stock only)
+$inv->set($variant, $qty, $reason, $reference)                  // void — absolute quantity, unrestricted
+$inv->reserve($variant, $qty, $reason, $reference)              // void — soft-hold (reserved_quantity++); throws for Deny
 $inv->release($variant, $qty, $reason, $reference)              // void — undo reserve (reserved_quantity--)
 $inv->commit($variant, $qty, $reason, $reference)               // void — reservation → permanent deduction
 
 ProductCatalog::extend($name, $resolver)  // register a custom driver
 ```
+
+Built-in `database` driver rules:
+- `adjust()` with a negative delta throws `InventoryException::insufficientStock()` when the new quantity would drop below `reserved_quantity`. Ship reserved units with `commit()`; use `adjust()` for unreserved movements (damage, walk-in sale, restock, return) and `set()` for stocktakes. Positive deltas are always allowed.
+- `reserve()` throws `InventoryException::purchaseNotAllowed()` for `InventoryPolicy::Deny`; it is a no-op for `Allow`.
 
 ## Search Drivers
 
@@ -126,7 +137,9 @@ ProductCatalog::extendSearch($name, $resolver)
 
 - `model` (top-level) must point to your application Product model
 - that model must extend the package base Product model
-- that model must use both `Laravel\Scout\Searchable` and `Aliziodev\ProductCatalog\Concerns\Searchable`
+- that model must use both `Laravel\Scout\Searchable` and `Aliziodev\ProductCatalog\Concerns\Searchable`, resolving the collision with
+  `Searchable::toSearchableArray insteadof ScoutSearchable;` and `Searchable::makeAllSearchableUsing insteadof ScoutSearchable;` (a plain `use` of both is a fatal error)
+- the default status filter uses `published()`, so scheduled products are hidden at query time even when they are in the index
 
 `ProductSearchBuilder` helpers:
 
@@ -166,7 +179,7 @@ $status->label()     // 'Draft' | 'Published' | 'Private' | 'Archived'
 ```php
 InventoryPolicy::Track   // check actual stock
 InventoryPolicy::Allow   // always in stock (digital, pre-order)
-InventoryPolicy::Deny    // always out of stock
+InventoryPolicy::Deny    // always out of stock; reserve() throws
 ```
 
 ### MovementType
@@ -225,6 +238,8 @@ Custom reasons via config:
 
 Namespace: `Aliziodev\ProductCatalog\Events\`
 
+All six implement `Illuminate\Contracts\Events\ShouldDispatchAfterCommit`: listeners run after the outermost DB transaction commits, never if it rolls back, and immediately when no transaction is open. `Event::fake()` still records them immediately.
+
 ---
 
 ## Exceptions
@@ -233,8 +248,9 @@ Namespace: `Aliziodev\ProductCatalog\Events\`
 use Aliziodev\ProductCatalog\Exceptions\InventoryException;
 use Aliziodev\ProductCatalog\Exceptions\ProductCatalogException;
 
-InventoryException::insufficientStock($requested, $available);
+InventoryException::insufficientStock($requested, $available);       // reserve(), or adjust() dipping into reserved stock
 InventoryException::insufficientReservation($requested, $reserved); // commit() when reserved < qty
+InventoryException::purchaseNotAllowed($variantId);                  // reserve() on a Deny variant
 
 // Duplicate manual slug — thrown automatically by HasSlug when a manually-set slug is already taken
 ProductCatalogException::duplicateSlug($slug, $modelBasename);
@@ -261,6 +277,8 @@ ProductCatalogException::cannotPublish($reason);
 | `CategoryResource` | `Aliziodev\ProductCatalog\Http\Resources\CategoryResource` |
 | `TagResource` | `Aliziodev\ProductCatalog\Http\Resources\TagResource` |
 
+`ProductResource` and `ProductVariantResource` include `meta` only when `product-catalog.routes.expose_meta` (`PRODUCT_CATALOG_ROUTES_EXPOSE_META`) is `true`; by default the key is absent.
+
 ---
 
 ## Built-in Routes (when enabled)
@@ -269,6 +287,8 @@ ProductCatalogException::cannotPublish($reason);
 GET /catalog/products           → ProductController@index
 GET /catalog/products/{slug}    → ProductController@show
 ```
+
+Both list live products only (`published()`); `show` includes active variants only.
 
 Route names: `catalog.products.index`, `catalog.products.show`
 

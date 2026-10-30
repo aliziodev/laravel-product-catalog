@@ -87,13 +87,29 @@ class Product extends BaseProduct
 {
     // ScoutSearchable provides the Scout indexing infrastructure.
     // Searchable (package concern) provides toSearchableArray() + makeAllSearchableUsing().
-    use ScoutSearchable, Searchable;
+    use ScoutSearchable, Searchable {
+        Searchable::toSearchableArray insteadof ScoutSearchable;
+        Searchable::makeAllSearchableUsing insteadof ScoutSearchable;
+    }
+
+    /** Keep drafts and archived products out of the index. */
+    public function shouldBeSearchable(): bool
+    {
+        return $this->isPublished();
+    }
 }
 ```
 
-> **Trait conflict:** Both traits define `toSearchableArray()`. PHP resolves it in favour of
-> the last `use` statement. Since `Searchable` is listed after `ScoutSearchable`, the
-> package's `toSearchableArray()` wins — which is what you want.
+> **Trait conflict:** Both traits define `toSearchableArray()` and `makeAllSearchableUsing()`.
+> PHP does not pick a winner by `use` order — a plain `use ScoutSearchable, Searchable;`
+> stops with a fatal *"Trait method ... has not been applied ... because of collision"* error.
+> The two `insteadof` lines tell PHP to take the package's versions.
+
+**About `shouldBeSearchable()`:**
+
+- It belongs in your model, not in the package trait — Scout defines it too, so adding it to the trait would collide again.
+- It checks the status only, not `published_at`. Nothing saves the model when a scheduled time passes, so the index could not catch up on its own. Scheduled products are indexed, and `ScoutSearchDriver` hides them at query time through `Product::published()`.
+- If you index only published products, `ScoutSearchDriver` with `->withStatus('draft')` finds nothing. Use the database driver for admin screens that list drafts or archived products.
 
 ### What Gets Indexed
 
@@ -112,16 +128,22 @@ The package's `Concerns\Searchable::toSearchableArray()` indexes:
 | `min_price` | Lowest active variant price (sortable) |
 | `published_at` | Sortable date |
 
+`toSearchableArray()` loads any missing `brand`, `primaryCategory`, `categories`, `tags` and `variants` relations itself, so a normal model save indexes the full document — brand, categories, tags, SKUs and `min_price` included.
+
 ### Customising the Index
 
-Override `toSearchableArray()` in your `App\Models\Product` if you need to add or remove fields:
+To add or remove fields, alias the package method and call it from your own `toSearchableArray()`. Do not call `parent::toSearchableArray()` — the package base `Product` has no such method, so the call ends in a `BadMethodCallException`.
 
 ```php
+use ScoutSearchable, Searchable {
+    Searchable::toSearchableArray insteadof ScoutSearchable;
+    Searchable::makeAllSearchableUsing insteadof ScoutSearchable;
+    Searchable::toSearchableArray as catalogSearchableArray;
+}
+
 public function toSearchableArray(): array
 {
-    $base = parent::toSearchableArray(); // package defaults
-
-    return array_merge($base, [
+    return array_merge($this->catalogSearchableArray(), [
         'custom_field' => $this->meta['custom'] ?? null,
     ]);
 }
@@ -157,7 +179,7 @@ use App\Models\Product;
 'model' => Product::class,
 ```
 
-This single key is read by **all** package subsystems — the database search driver, the Scout search driver, and the API controller — so you only configure your extended model once. `ScoutSearchDriver` additionally expects the configured model to use both `Laravel\Scout\Searchable` and the package's `Concerns\Searchable` trait.
+This single key is read by **all** package subsystems — the database search driver, the Scout search driver, the API controller, and the product relations on `Brand`, `Category`, `Tag`, `ProductVariant` and `ProductOption` — so you only configure your extended model once. `ScoutSearchDriver` additionally expects the configured model to use both `Laravel\Scout\Searchable` and the package's `Concerns\Searchable` trait, with the `insteadof` block shown above.
 
 Or per-request using `usingDriver()`:
 
@@ -186,6 +208,8 @@ App\Models\Product::search('kemeja')
     })
     ->paginate(24);
 ```
+
+The default status filter is `Product::published()`, so products scheduled for a future `published_at` are dropped here even though they are in the index.
 
 ### ⚠️ Pagination Caveat
 
@@ -358,7 +382,7 @@ PRODUCT_CATALOG_SEARCH_DRIVER=my-engine
 
 ## Keeping the Index in Sync
 
-Scout automatically syncs the index when a model is created, updated, or deleted — as long as the model uses `ScoutSearchable`. No extra configuration needed.
+Scout automatically syncs the index when a model is created, updated, or deleted — as long as the model uses `ScoutSearchable`. No extra configuration needed. Because `toSearchableArray()` loads its own missing relations, a single save indexes the full document, not just the product columns.
 
 For bulk re-indexing after a schema or `toSearchableArray()` change:
 

@@ -96,12 +96,14 @@ $inventory->set($variant, 100, 'goods_received');
 // Restock from purchase order
 $inventory->adjust($variant, 50, 'purchase_order', $purchaseOrder);
 
-// Damage / write-off
+// Damage / write-off — a deduction can only take available (unreserved) stock
 $inventory->adjust($variant, -3, 'damaged');
 
-// Physical count correction
+// Physical count correction — set() is unrestricted
 $inventory->set($variant, 95, 'physical_count');
 ```
+
+A negative `adjust()` throws `InventoryException` when it would drop `quantity` below `reserved_quantity`: units held for pending orders leave through `commit()`. Use `adjust()` for unreserved movements (damage, walk-in sale, restock, return) and `set()` for stock counts.
 
 ## 5. Low-Stock & Reorder Monitoring
 
@@ -175,6 +177,8 @@ $variant->update([
 // Read
 $location = $variant->meta['shelf_location'] ?? 'unassigned';
 ```
+
+> **`meta` stays out of the API by default.** `ProductResource` and `ProductVariantResource` leave `meta` out unless `product-catalog.routes.expose_meta` is `true`, so supplier codes and reorder points are not published if you enable the built-in routes. Keep it off for an internal catalog — see [Configuration](configuration.md#expose_meta).
 
 ---
 

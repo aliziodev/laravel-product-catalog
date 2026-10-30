@@ -192,7 +192,7 @@ Product::published()
 |---|---|
 | `InventoryPolicy::Allow` | Unlimited stock — for digital goods |
 | `InventoryPolicy::Track` | Quantity-tracked — for physical goods |
-| `InventoryPolicy::Deny` | Variant unavailable |
+| `InventoryPolicy::Deny` | Variant unavailable — `reserve()` throws `InventoryException` |
 | `$variant->weight` | Physical shipping weight (kg) |
 | `$variant->length / width / height` | Physical dimensions (cm) |
 | `$variant->meta` | Store `license_type`, `file_format`, `is_digital`, etc. |

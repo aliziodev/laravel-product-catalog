@@ -16,7 +16,7 @@ php artisan vendor:publish --tag=product-catalog-config
 'model' => \Aliziodev\ProductCatalog\Models\Product::class,
 ```
 
-The Eloquent model class used throughout the package. All internal subsystems — the `DatabaseSearchDriver`, `ScoutSearchDriver`, and `ProductController` — resolve their model through this single key.
+The Eloquent model class used throughout the package. All internal subsystems — the `DatabaseSearchDriver`, `ScoutSearchDriver`, `ProductController`, and the product relations (`Brand::products()`, `Category::products()`, `Tag::products()`, `ProductVariant::product()`, `ProductOption::product()`) — resolve their model through this single key, so `$variant->product` returns your extended model.
 
 Override when you extend the base `Product` model in your application:
 
@@ -25,7 +25,9 @@ Override when you extend the base `Product` model in your application:
 'model' => \App\Models\Product::class,
 ```
 
-Your model must extend `Aliziodev\ProductCatalog\Models\Product`. If you are using Scout, add `Laravel\Scout\Searchable` and `Aliziodev\ProductCatalog\Concerns\Searchable` to this application model (not the package base model):
+Your model must extend `Aliziodev\ProductCatalog\Models\Product`. Any class name works (e.g. `CatalogProduct`): the package relations use an explicit `product_id` foreign key instead of deriving one from the class name.
+
+If you are using Scout, add `Laravel\Scout\Searchable` and `Aliziodev\ProductCatalog\Concerns\Searchable` to this application model (not the package base model). Both traits define `toSearchableArray()` and `makeAllSearchableUsing()`, so resolve the collision with `insteadof` — a plain `use ScoutSearchable, Searchable;` is a fatal error:
 
 ```php
 // app/Models/Product.php
@@ -35,9 +37,14 @@ use Laravel\Scout\Searchable as ScoutSearchable;
 
 class Product extends BaseProduct
 {
-    use ScoutSearchable, Searchable;
+    use ScoutSearchable, Searchable {
+        Searchable::toSearchableArray insteadof ScoutSearchable;
+        Searchable::makeAllSearchableUsing insteadof ScoutSearchable;
+    }
 }
 ```
+
+See [Scout Integration](scout-integration.md) for the full setup.
 
 > **Validated on boot.** `ProductCatalogServiceProvider` checks this key on every request and throws an `InvalidArgumentException` (with a clear message) if the value is empty, the class doesn't exist, or it doesn't extend the base `Product`.
 
@@ -150,9 +157,10 @@ Length of the random alphanumeric suffix appended permanently to the slug. Clamp
 
 ```php
 'routes' => [
-    'enabled'    => env('PRODUCT_CATALOG_ROUTES_ENABLED', false),
-    'prefix'     => env('PRODUCT_CATALOG_ROUTES_PREFIX', 'catalog'),
-    'middleware' => ['api'],
+    'enabled'     => env('PRODUCT_CATALOG_ROUTES_ENABLED', false),
+    'prefix'      => env('PRODUCT_CATALOG_ROUTES_PREFIX', 'catalog'),
+    'middleware'  => ['api'],
+    'expose_meta' => env('PRODUCT_CATALOG_ROUTES_EXPOSE_META', false),
 ],
 ```
 
@@ -164,6 +172,8 @@ Set to `true` to register the built-in read-only catalog API:
 GET /catalog/products           → ProductController@index
 GET /catalog/products/{slug}    → ProductController@show
 ```
+
+Both endpoints return only live products (`Product::published()`), so products scheduled for a future `published_at` stay hidden. `show` includes active variants only — a variant with `is_active = false` is left out.
 
 Leave `false` (default) if you are building your own controllers — the package models and resources are still fully available.
 
@@ -188,6 +198,16 @@ Array of middleware applied to all catalog routes. Default is `['api']`. Add aut
 ```php
 'middleware' => ['api', 'auth:sanctum'],
 ```
+
+### `expose_meta`
+
+When `true`, `ProductResource` and `ProductVariantResource` include the product and variant `meta` JSON. Default `false`: the `meta` key is left out of the response entirely (it is not `null`).
+
+```env
+PRODUCT_CATALOG_ROUTES_EXPOSE_META=true
+```
+
+It is off by default because `meta` often holds internal data — the [Internal Catalog](internal-catalog.md) guide stores `reorder_point` and `lead_time_days` there. The setting applies wherever the two resources are used, including your own controllers. Turn it on only when everything you keep in `meta` is safe to publish.
 
 > **Pitfall — `enabled = true` with conflicting route names.**
 > The built-in routes are named `catalog.products.index` and `catalog.products.show`. If your application already has routes with these names, there will be a conflict. Either keep `enabled = false` and define your own routes, or rename yours.
