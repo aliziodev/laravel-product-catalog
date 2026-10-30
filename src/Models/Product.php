@@ -160,9 +160,25 @@ class Product extends Model
     // Scopes
     // -------------------------------------------------------------------------
 
+    /**
+     * Published products that are live now.
+     *
+     * A product with a future published_at is scheduled and stays hidden until
+     * that moment. A null published_at counts as live, so products saved with
+     * only a status keep showing up.
+     */
     public function scopePublished(Builder $query): void
     {
         $query->where('status', ProductStatus::Published);
+
+        $this->wherePublishedAtReached($query);
+    }
+
+    /** Published products whose published_at is still in the future. */
+    public function scopeScheduled(Builder $query): void
+    {
+        $query->where('status', ProductStatus::Published)
+            ->where($query->qualifyColumn('published_at'), '>', now());
     }
 
     public function scopeDraft(Builder $query): void
@@ -180,10 +196,27 @@ class Product extends Model
         $query->where('status', ProductStatus::Private);
     }
 
-    /** Both Published and Private — useful for authenticated storefronts. */
+    /**
+     * Both Published and Private — useful for authenticated storefronts.
+     * Like published(), products with a future published_at are left out.
+     */
     public function scopeVisible(Builder $query): void
     {
         $query->whereIn('status', [ProductStatus::Published->value, ProductStatus::Private->value]);
+
+        $this->wherePublishedAtReached($query);
+    }
+
+    /**
+     * Constrain to rows whose published_at is null or not in the future.
+     */
+    protected function wherePublishedAtReached(Builder $query): void
+    {
+        $column = $query->qualifyColumn('published_at');
+
+        $query->where(function (Builder $q) use ($column) {
+            $q->whereNull($column)->orWhere($column, '<=', now());
+        });
     }
 
     public function scopeForBrand(Builder $query, int|Brand $brand): void
@@ -259,6 +292,14 @@ class Product extends Model
     public function isLive(): bool
     {
         return $this->status->isLive();
+    }
+
+    /** Published, but published_at is still in the future. */
+    public function isScheduled(): bool
+    {
+        return $this->isPublished()
+            && $this->published_at !== null
+            && $this->published_at->isFuture();
     }
 
     public function isVariable(): bool

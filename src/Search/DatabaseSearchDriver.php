@@ -62,7 +62,12 @@ class DatabaseSearchDriver implements SearchDriverInterface
             ? ProductStatus::from($filters['status'])
             : ProductStatus::Published;
 
-        $builder->where('status', $status->value);
+        // published() also hides products scheduled for a future published_at.
+        if ($status === ProductStatus::Published) {
+            $builder->published();
+        } else {
+            $builder->where('status', $status->value);
+        }
 
         if (! empty($filters['category'])) {
             $this->applyCategory($builder, $filters['category']);

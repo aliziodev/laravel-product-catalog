@@ -21,6 +21,40 @@ it('scopePublished returns only published products', function () {
     expect(Product::published()->count())->toBe(2);
 });
 
+it('scopePublished leaves out products scheduled for later', function () {
+    $live = Product::factory()->create(['status' => ProductStatus::Published, 'published_at' => now()->subMinute()]);
+    $withoutDate = Product::factory()->create(['status' => ProductStatus::Published, 'published_at' => null]);
+    Product::factory()->create(['status' => ProductStatus::Published, 'published_at' => now()->addDay()]);
+
+    expect(Product::published()->pluck('id')->sort()->values()->all())
+        ->toBe(collect([$live->id, $withoutDate->id])->sort()->values()->all());
+});
+
+it('a scheduled product becomes published once its published_at passes', function () {
+    $this->travelTo(now()->startOfMinute());
+    $product = Product::factory()->create(['status' => ProductStatus::Published, 'published_at' => now()->addHour()]);
+
+    expect(Product::published()->count())->toBe(0)
+        ->and(Product::scheduled()->pluck('id')->all())->toBe([$product->id])
+        ->and($product->isScheduled())->toBeTrue();
+
+    $this->travel(61)->minutes();
+
+    expect(Product::published()->pluck('id')->all())->toBe([$product->id])
+        ->and(Product::scheduled()->count())->toBe(0)
+        ->and($product->fresh()->isScheduled())->toBeFalse();
+});
+
+it('scopeVisible leaves out published and private products scheduled for later', function () {
+    $published = Product::factory()->create(['status' => ProductStatus::Published, 'published_at' => now()->subDay()]);
+    $private = Product::factory()->create(['status' => ProductStatus::Private, 'published_at' => null]);
+    Product::factory()->create(['status' => ProductStatus::Published, 'published_at' => now()->addDay()]);
+    Product::factory()->create(['status' => ProductStatus::Private, 'published_at' => now()->addDay()]);
+
+    expect(Product::visible()->pluck('id')->sort()->values()->all())
+        ->toBe(collect([$published->id, $private->id])->sort()->values()->all());
+});
+
 // --- scopeForBrand() ---
 
 it('scopeForBrand filters by brand ID', function () {
