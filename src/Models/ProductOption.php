@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Aliziodev\ProductCatalog\Models;
 
 use Aliziodev\ProductCatalog\Concerns\HasCatalogTable;
+use Aliziodev\ProductCatalog\Concerns\UsesProductModel;
 use Aliziodev\ProductCatalog\Database\Factories\ProductOptionFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -15,6 +16,7 @@ class ProductOption extends Model
 {
     use HasCatalogTable;
     use HasFactory;
+    use UsesProductModel;
 
     protected $fillable = [
         'product_id',
@@ -34,7 +36,7 @@ class ProductOption extends Model
 
     public function product(): BelongsTo
     {
-        return $this->belongsTo(Product::class);
+        return $this->belongsTo($this->productModel(), 'product_id');
     }
 
     public function values(): HasMany

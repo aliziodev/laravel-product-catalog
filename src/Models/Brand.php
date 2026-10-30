@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Aliziodev\ProductCatalog\Models;
 
 use Aliziodev\ProductCatalog\Concerns\HasCatalogTable;
+use Aliziodev\ProductCatalog\Concerns\UsesProductModel;
 use Aliziodev\ProductCatalog\Database\Factories\BrandFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -16,6 +17,7 @@ class Brand extends Model
     use HasCatalogTable;
     use HasFactory;
     use SoftDeletes;
+    use UsesProductModel;
 
     protected $fillable = [
         'name',
@@ -37,6 +39,6 @@ class Brand extends Model
 
     public function products(): HasMany
     {
-        return $this->hasMany(Product::class);
+        return $this->hasMany($this->productModel(), 'brand_id');
     }
 }

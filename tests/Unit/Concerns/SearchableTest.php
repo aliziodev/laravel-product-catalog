@@ -140,13 +140,7 @@ it('returns skus from variants when variants relation is loaded', function () {
     ProductVariant::factory()->create(['product_id' => $product->id, 'sku' => 'SKU-001', 'is_active' => true]);
     ProductVariant::factory()->create(['product_id' => $product->id, 'sku' => 'SKU-002', 'is_active' => true]);
 
-    // Load variants via the base Product model (avoids SearchableProduct FK derivation issue)
-    // then transfer the already-loaded relation to the searchable instance via setRelation().
-    $loaded = Product::with('variants')->find($product->id);
-    $searchable = SearchableProduct::find($product->id);
-    $searchable->setRelation('variants', $loaded->variants);
-
-    $arr = $searchable->toSearchableArray();
+    $arr = SearchableProduct::with('variants')->find($product->id)->toSearchableArray();
 
     expect($arr['skus'])->toContain('SKU-001')
         ->and($arr['skus'])->toContain('SKU-002');
@@ -157,11 +151,7 @@ it('min_price only considers active variants', function () {
     ProductVariant::factory()->create(['product_id' => $product->id, 'price' => 50_000, 'is_active' => true]);
     ProductVariant::factory()->create(['product_id' => $product->id, 'price' => 10_000, 'is_active' => false]);
 
-    $loaded = Product::with('variants')->find($product->id);
-    $searchable = SearchableProduct::find($product->id);
-    $searchable->setRelation('variants', $loaded->variants);
-
-    $arr = $searchable->toSearchableArray();
+    $arr = SearchableProduct::with('variants')->find($product->id)->toSearchableArray();
 
     expect($arr['min_price'])->toBe(50_000.0);
 });

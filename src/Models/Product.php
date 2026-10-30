@@ -70,19 +70,22 @@ class Product extends Model
     // Relationships
     // -------------------------------------------------------------------------
 
+    // Foreign keys are explicit: Laravel would otherwise derive them from the
+    // class name, which breaks for an extended model such as CatalogProduct.
+
     public function variants(): HasMany
     {
-        return $this->hasMany(ProductVariant::class)->orderBy('position');
+        return $this->hasMany(ProductVariant::class, 'product_id')->orderBy('position');
     }
 
     public function defaultVariant(): HasOne
     {
-        return $this->hasOne(ProductVariant::class)->where('is_default', true);
+        return $this->hasOne(ProductVariant::class, 'product_id')->where('is_default', true);
     }
 
     public function options(): HasMany
     {
-        return $this->hasMany(ProductOption::class)->orderBy('position');
+        return $this->hasMany(ProductOption::class, 'product_id')->orderBy('position');
     }
 
     public function brand(): BelongsTo
