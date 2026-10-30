@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Aliziodev\ProductCatalog\Search;
 
 use Aliziodev\ProductCatalog\Contracts\SearchDriverInterface;
+use Aliziodev\ProductCatalog\Enums\ProductType;
 use Aliziodev\ProductCatalog\Models\Product;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
@@ -95,42 +96,46 @@ class ProductSearchBuilder
     public static function fromRequest(Request $request): static
     {
         $instance = static::query(
-            trim($request->string('q', $request->string('search', ''))->value())
+            static::scalarInput($request, 'q') ?? static::scalarInput($request, 'search') ?? ''
         );
 
-        if ($request->filled('category')) {
-            $instance->inCategory(static::castIdOrSlug($request->input('category')));
+        if (($category = static::scalarInput($request, 'category')) !== null) {
+            $instance->inCategory(static::castIdOrSlug($category));
         }
 
-        if ($request->filled('brand')) {
-            $instance->forBrand(static::castIdOrSlug($request->input('brand')));
+        if (($brand = static::scalarInput($request, 'brand')) !== null) {
+            $instance->forBrand(static::castIdOrSlug($brand));
         }
 
         // Support both ?tags[]=a&tags[]=b and the legacy ?tag=<id>
-        if ($request->filled('tags')) {
-            $instance->withTags(static::castTags((array) $request->input('tags')));
-        } elseif ($request->filled('tag')) {
-            $instance->withTags([static::castIdOrSlug($request->input('tag'))]);
+        $tags = static::scalarList($request->input('tags'));
+
+        if ($tags !== []) {
+            $instance->withTags(static::castTags($tags));
+        } elseif (($tag = static::scalarInput($request, 'tag')) !== null) {
+            $instance->withTags([static::castIdOrSlug($tag)]);
         }
 
-        if ($request->filled('min_price')) {
-            $instance->minPrice((float) $request->input('min_price'));
+        if (is_numeric($minPrice = static::scalarInput($request, 'min_price'))) {
+            $instance->minPrice((float) $minPrice);
         }
 
-        if ($request->filled('max_price')) {
-            $instance->maxPrice((float) $request->input('max_price'));
+        if (is_numeric($maxPrice = static::scalarInput($request, 'max_price'))) {
+            $instance->maxPrice((float) $maxPrice);
         }
 
         if ($request->boolean('in_stock')) {
             $instance->onlyInStock();
         }
 
-        if ($request->filled('type')) {
-            $instance->ofType($request->input('type'));
+        $type = ProductType::tryFrom(static::scalarInput($request, 'type') ?? '');
+
+        if ($type !== null) {
+            $instance->ofType($type->value);
         }
 
-        if ($request->filled('sort_by')) {
-            $instance->sortBy($request->input('sort_by'));
+        if (($sortBy = static::scalarInput($request, 'sort_by')) !== null) {
+            $instance->sortBy($sortBy);
         }
 
         if ($request->input('sort_direction') === 'asc') {
@@ -351,6 +356,43 @@ class ProductSearchBuilder
         $filters['_with'] = $this->relations;
 
         return $filters;
+    }
+
+    /**
+     * Read a query-string value as a trimmed, non-empty string.
+     *
+     * Returns null for missing or empty values and for arrays such as ?type[]=x,
+     * so malformed input is ignored instead of raising a TypeError (HTTP 500).
+     */
+    protected static function scalarInput(Request $request, string $key): ?string
+    {
+        $value = $request->input($key);
+
+        if (! is_scalar($value)) {
+            return null;
+        }
+
+        $value = trim((string) $value);
+
+        return $value === '' ? null : $value;
+    }
+
+    /**
+     * Normalise a list input (?tags[]=a&tags[]=b, or a single ?tags=a) to its
+     * non-empty scalar values. Nested arrays are dropped.
+     *
+     * @return list<string>
+     */
+    protected static function scalarList(mixed $value): array
+    {
+        $values = is_array($value) ? $value : [$value];
+
+        $values = array_map(
+            fn ($item) => is_scalar($item) ? trim((string) $item) : '',
+            $values,
+        );
+
+        return array_values(array_filter($values, fn (string $item) => $item !== ''));
     }
 
     /**

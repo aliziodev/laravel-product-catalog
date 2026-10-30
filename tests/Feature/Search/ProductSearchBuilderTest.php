@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Aliziodev\ProductCatalog\Contracts\SearchDriverInterface;
 use Aliziodev\ProductCatalog\Enums\ProductStatus;
+use Aliziodev\ProductCatalog\Enums\ProductType;
 use Aliziodev\ProductCatalog\Models\Brand;
 use Aliziodev\ProductCatalog\Models\Category;
 use Aliziodev\ProductCatalog\Models\Product;
@@ -245,6 +246,49 @@ it('fromRequest() maps tags[] array param', function () {
 
     expect($result->total())->toBe(1)
         ->and($result->items()[0]->id)->toBe($match->id);
+});
+
+it('fromRequest() accepts a single tags value and skips empty entries', function (string|array $tags) {
+    $tag = Tag::factory()->create(['slug' => 'bestseller']);
+    $match = Product::factory()->create(['status' => ProductStatus::Published]);
+    $match->tags()->attach($tag);
+
+    Product::factory()->create(['status' => ProductStatus::Published]);
+
+    $request = Request::create('/products', 'GET', ['tags' => $tags]);
+    $result = ProductSearchBuilder::fromRequest($request)->paginate(15);
+
+    expect($result->total())->toBe(1)
+        ->and($result->items()[0]->id)->toBe($match->id);
+})->with([
+    'single value' => ['bestseller'],
+    'array with empty entry' => [['bestseller', '']],
+]);
+
+it('fromRequest() ignores an unknown product type', function () {
+    Product::factory()->create(['status' => ProductStatus::Published, 'type' => ProductType::Simple]);
+    Product::factory()->create(['status' => ProductStatus::Published, 'type' => ProductType::Variable]);
+
+    $request = Request::create('/products', 'GET', ['type' => 'bundle']);
+
+    expect(ProductSearchBuilder::fromRequest($request)->paginate(15)->total())->toBe(2);
+});
+
+it('fromRequest() ignores array and non-numeric values instead of throwing', function () {
+    Product::factory()->create(['status' => ProductStatus::Published]);
+
+    $request = Request::create('/products', 'GET', [
+        'q' => ['shirt'],
+        'category' => ['shirts'],
+        'brand' => ['acme'],
+        'tags' => [['nested']],
+        'min_price' => 'cheap',
+        'max_price' => ['20'],
+        'type' => ['simple'],
+        'sort_by' => ['price'],
+    ]);
+
+    expect(ProductSearchBuilder::fromRequest($request)->paginate(15)->total())->toBe(1);
 });
 
 it('fromRequest() maps legacy tag param (singular, by ID)', function () {

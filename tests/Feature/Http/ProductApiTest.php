@@ -130,6 +130,26 @@ it('falls back to the default page size when per_page is below 1 or not a number
         ->assertJsonPath('meta.per_page', 15);
 })->with(['-1', '0', 'abc']);
 
+it('ignores malformed filter parameters instead of failing', function (string $query) {
+    Product::factory()->create(['status' => ProductStatus::Published, 'published_at' => now()]);
+
+    $this->getJson('/catalog/products?'.$query)
+        ->assertOk()
+        ->assertJsonCount(1, 'data');
+})->with([
+    'unknown type' => ['type=foo'],
+    'type as array' => ['type[]=simple'],
+    'sort_by as array' => ['sort_by[]=price'],
+    'status as array' => ['status[]=draft'],
+    'category as array' => ['category[]=shirts'],
+    'brand as array' => ['brand[]=acme'],
+    'tag as array' => ['tag[]=sale'],
+    'nested tags' => ['tags[][]=sale'],
+    'q as array' => ['q[]=shirt'],
+    'price as array' => ['min_price[]=10&max_price[]=20'],
+    'price not numeric' => ['min_price=cheap'],
+]);
+
 it('returns a single product by slug with variants', function () {
     $product = Product::factory()->create([
         'status' => ProductStatus::Published,
