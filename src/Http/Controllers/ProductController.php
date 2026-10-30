@@ -15,8 +15,11 @@ class ProductController extends Controller
 {
     public function index(Request $request): AnonymousResourceCollection
     {
-        $perPage = min((int) $request->input('per_page', 15), 50);
-        $page = (int) $request->input('page', 1);
+        // Laravel ignores a negative limit, so per_page=-1 used to return the whole
+        // catalog in one response. Anything below 1 now falls back to the default.
+        $perPage = (int) $request->input('per_page', 15);
+        $perPage = $perPage < 1 ? 15 : min($perPage, 50);
+        $page = max(1, (int) $request->input('page', 1));
 
         $paginator = ProductSearchBuilder::fromRequest($request)
             ->withRelations(['brand', 'primaryCategory', 'tags'])
