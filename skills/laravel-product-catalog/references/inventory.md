@@ -117,7 +117,7 @@ class AppInventoryProvider implements InventoryProviderInterface
         $newQty = $record->quantity + $delta;
 
         if ($newQty < 0) {
-            throw InventoryException::insufficientStock($variant, abs($delta));
+            throw InventoryException::insufficientStock(abs($delta), $record->quantity);
         }
 
         $record->update(['quantity' => $newQty]);

@@ -19,7 +19,7 @@ Just implement a single interface, and the package will communicate with your st
 
 ## Interface Contract
 
-Implement these five methods:
+Implement these eight methods:
 
 ```php
 namespace Aliziodev\ProductCatalog\Contracts;
@@ -40,8 +40,19 @@ interface InventoryProviderInterface
 
     // Set stock to an absolute value
     public function set(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void;
+
+    // Hold stock for a pending order (since v1.6.0)
+    public function reserve(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void;
+
+    // Give a hold back, e.g. when an order is cancelled (since v1.6.0)
+    public function release(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void;
+
+    // Turn a hold into a permanent deduction, e.g. when an order ships (since v1.6.0)
+    public function commit(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void;
 }
 ```
+
+> **Upgrading a driver written for v1.5 or earlier:** `reserve()`, `release()` and `commit()` were added to the interface in v1.6.0, so a driver that only has the first five methods fails with a fatal error. Add the three methods; if your stock system has no concept of holds, follow Example 1 below. Reject a `$quantity` below 1 in all three, as the built-in `database` driver does.
 
 ---
 
@@ -102,7 +113,7 @@ class AppInventoryProvider implements InventoryProviderInterface
         $newQty = $record->quantity + $delta;
 
         if ($newQty < 0) {
-            throw InventoryException::insufficientStock($variant, abs($delta));
+            throw InventoryException::insufficientStock(abs($delta), $record->quantity);
         }
 
         $record->update(['quantity' => $newQty]);
@@ -118,6 +129,48 @@ class AppInventoryProvider implements InventoryProviderInterface
             ['sku' => $variant->sku],
             ['quantity' => max(0, $quantity)]
         );
+    }
+
+    // This table has no reserved column, so holds are not stored:
+    // reserve() only checks availability and commit() deducts the stock.
+
+    public function reserve(
+        ProductVariant $variant,
+        int $quantity,
+        string $reason = '',
+        ?Model $reference = null,
+    ): void {
+        if ($quantity < 1) {
+            throw InventoryException::invalidQuantity($quantity);
+        }
+
+        if (! $this->canFulfill($variant, $quantity)) {
+            throw InventoryException::insufficientStock($quantity, $this->getQuantity($variant));
+        }
+    }
+
+    public function release(
+        ProductVariant $variant,
+        int $quantity,
+        string $reason = '',
+        ?Model $reference = null,
+    ): void {
+        if ($quantity < 1) {
+            throw InventoryException::invalidQuantity($quantity);
+        }
+    }
+
+    public function commit(
+        ProductVariant $variant,
+        int $quantity,
+        string $reason = '',
+        ?Model $reference = null,
+    ): void {
+        if ($quantity < 1) {
+            throw InventoryException::invalidQuantity($quantity);
+        }
+
+        $this->adjust($variant, -$quantity, $reason, $reference);
     }
 }
 ```
@@ -200,6 +253,39 @@ class ErpInventoryProvider implements InventoryProviderInterface
                 'reason'   => $reason,
             ]);
     }
+
+    public function reserve(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void
+    {
+        $this->send('reserve', $variant, $quantity, $reason, $reference);
+    }
+
+    public function release(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void
+    {
+        $this->send('release', $variant, $quantity, $reason, $reference);
+    }
+
+    public function commit(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void
+    {
+        $this->send('commit', $variant, $quantity, $reason, $reference);
+    }
+
+    private function send(string $action, ProductVariant $variant, int $quantity, string $reason, ?Model $reference): void
+    {
+        if ($quantity < 1) {
+            throw InventoryException::invalidQuantity($quantity);
+        }
+
+        $response = Http::withToken($this->apiKey)
+            ->post("{$this->baseUrl}/stock/{$variant->sku}/{$action}", [
+                'quantity'     => $quantity,
+                'reason'       => $reason,
+                'reference_id' => $reference?->getKey(),
+            ]);
+
+        if ($response->failed()) {
+            throw new \RuntimeException("ERP {$action} failed for SKU: {$variant->sku}");
+        }
+    }
 }
 ```
 
@@ -260,8 +346,13 @@ $inventory = ProductCatalog::inventory(); // resolve the active driver
 
 $inventory->isInStock($variant);
 $inventory->canFulfill($variant, 10);
-$inventory->adjust($variant, -3, 'order_paid', $order);
+$inventory->adjust($variant, -3, 'damaged');
 $inventory->set($variant, 50, 'physical_count');
+
+// Order lifecycle
+$inventory->reserve($variant, 2, 'order_placed', $order);
+$inventory->release($variant, 2, 'order_cancelled', $order); // or…
+$inventory->commit($variant, 2, 'order_shipped', $order);
 ```
 
 ---
@@ -338,13 +429,31 @@ class FallbackInventoryProvider implements InventoryProviderInterface
             $this->fallback->set($variant, $quantity, $reason, $reference);
         }
     }
+
+    // Reservations are not mirrored to the fallback: a hold placed in one system
+    // and committed in the other would leave both out of sync. Let them fail.
+
+    public function reserve(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void
+    {
+        $this->primary->reserve($variant, $quantity, $reason, $reference);
+    }
+
+    public function release(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void
+    {
+        $this->primary->release($variant, $quantity, $reason, $reference);
+    }
+
+    public function commit(ProductVariant $variant, int $quantity, string $reason = '', ?Model $reference = null): void
+    {
+        $this->primary->commit($variant, $quantity, $reason, $reference);
+    }
 }
 ```
 
 Register it:
 
 ```php
-use Aliziodev\ProductCatalog\Inventory\DatabaseInventoryProvider;
+use Aliziodev\ProductCatalog\Drivers\DatabaseInventoryProvider;
 
 ProductCatalog::extend('erp-with-fallback', function ($app) {
     return new \App\Inventory\FallbackInventoryProvider(
@@ -398,5 +507,6 @@ it('throws when adjusting below zero', function () {
 | `ProductCatalog::extend($name, $resolver)` | Register a new driver |
 | `ProductCatalog::inventory()` | Resolve the active driver |
 | `InventoryProviderInterface` | Contract you must implement |
-| `InventoryException::insufficientStock($variant, $qty)` | Built-in exception for insufficient stock |
+| `InventoryException::insufficientStock($requested, $available)` | Built-in exception for insufficient stock |
+| `InventoryException::invalidQuantity($quantity)` | Built-in exception for a quantity below 1 |
 | `PRODUCT_CATALOG_INVENTORY_DRIVER` | `.env` key used to switch drivers |

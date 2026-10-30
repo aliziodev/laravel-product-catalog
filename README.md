@@ -20,6 +20,7 @@ A professional, variant-centric product catalog package for Laravel 12+. Designe
 - [Suitable For](#suitable-for)
 - [Features](#features)
 - [Installation](#installation)
+- [Upgrading](#upgrading)
 - [Configuration](#configuration)
 - [Basic Usage](#basic-usage)
   - [Products](#products)
@@ -167,6 +168,36 @@ Or run the interactive installer:
 ```bash
 php artisan catalog:install
 ```
+
+---
+
+## Upgrading
+
+Run `php artisan migrate` after every update.
+
+### To 1.6.1
+
+**Schema repair for older installs.** Releases 1.4.1, 1.5.0 and 1.6.0 changed create migrations that had already shipped, so installs created before them never received:
+
+- `brands.logo_path` (renamed from `logo_url` in 1.4.1)
+- the `idx_catalog_products_name` and `idx_catalog_inventory_items_policy` indexes (1.5.0)
+- `inventory_movements.reserved_before` / `reserved_after` (1.6.0) — without them every stock change fails with *Unknown column 'reserved_before'*
+
+The new `sync_catalog_schema_for_upgraded_installs` migration adds whatever is missing and does nothing on a fresh install.
+
+**MySQL.** Two create migrations failed on MySQL 8 and are fixed in this release. If you published the migrations, publish them again with `php artisan vendor:publish --tag=product-catalog-migrations --force`. If `migrate` stopped at `create_catalog_inventory_movements_table`, drop the half-created `catalog_inventory_movements` table before running `migrate` again.
+
+**Behaviour changes**
+
+- `reserve()`, `release()` and `commit()` throw `InventoryException` for a quantity below 1. A negative amount used to invert the operation, e.g. `reserve(-5)` freed stock held by other orders. `InventoryItem::reserve()` / `release()` reject negative amounts.
+- `commit()` throws `InventoryException` instead of writing a negative quantity when stock was set below the reserved amount.
+- `ProductSearchBuilder::fromRequest()` ignores the `status` query parameter, so `?status=draft` can no longer list unpublished products. Admin screens should call `->withStatus()` explicitly.
+
+**Reservations.** Earlier versions of `docs/online-store.md` reserved with `$variant->inventoryItem->reserve()` and shipped with `adjust()`, which never released the hold. If you used that flow, `reserved_quantity` has grown over time. Switch to `ProductCatalog::inventory()->reserve()`, `release()` and `commit()`, then recompute `reserved_quantity` from your open orders.
+
+### To 1.6.0
+
+`InventoryProviderInterface` gained `reserve()`, `release()` and `commit()`. A custom inventory driver written for 1.5 or earlier must implement them — see [docs/custom-inventory-provider.md](docs/custom-inventory-provider.md).
 
 ---
 
@@ -353,8 +384,10 @@ $inventory->release($variant, 3, InventoryReason::ORDER_CANCELLED, $order);
 $inventory->commit($variant, 3, InventoryReason::ORDER_FULFILLED, $order);
 // reserved_quantity: −3, total quantity: −3, available: unchanged
 
+// All three throw InventoryException when the quantity is below 1
 // reserve() throws InventoryException when available stock < requested
-// commit() throws InventoryException when reserved_quantity < requested
+// commit() throws InventoryException when reserved_quantity < requested,
+//          or when total quantity < requested (stock was set below the reservation)
 ```
 
 ### InventoryReason
