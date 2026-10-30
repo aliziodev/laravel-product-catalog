@@ -2,6 +2,22 @@
 
 All notable changes to `aliziodev/laravel-product-catalog` will be documented in this file.
 
+## [1.7.0](https://github.com/aliziodev/laravel-product-catalog/compare/v1.6.2...v1.7.0) (2026-10-30)
+
+### Features
+
+* **products:** schedule publishing with published_at ([31281bc](https://github.com/aliziodev/laravel-product-catalog/commit/31281bc4def0218ded7d1070e80284bb0f921231))
+* **variants:** widen price columns to decimal(19,4) ([d0f2c24](https://github.com/aliziodev/laravel-product-catalog/commit/d0f2c24036248717acda6c53761f9ee8cf372ecb))
+
+### Bug Fixes
+
+* **api:** leave inactive variants and meta out of the public API ([acdb6da](https://github.com/aliziodev/laravel-product-catalog/commit/acdb6da16e1ba6fc841fc3b2705d4279518b12e2))
+* **events:** dispatch catalog events after the transaction commits ([d212d0c](https://github.com/aliziodev/laravel-product-catalog/commit/d212d0c07b82eb2837f3b630946291724f48c53b))
+* **inventory:** reject reserve() for variants with the deny policy ([c80312e](https://github.com/aliziodev/laravel-product-catalog/commit/c80312e0de07536d8def194fe11d3d4d1e254849))
+* **inventory:** stop adjust() from deducting reserved stock ([056cb99](https://github.com/aliziodev/laravel-product-catalog/commit/056cb9961d440e09809da062ac23179e9bb7886b))
+* **models:** use the configured product model in every relation ([ed00597](https://github.com/aliziodev/laravel-product-catalog/commit/ed00597f0a7b26c9d6fc7ec29c1ba2e0deb892a4))
+* **scout:** load missing relations before indexing a product ([267dca1](https://github.com/aliziodev/laravel-product-catalog/commit/267dca11d1df36f5a5e6e34cffe466e310f90997))
+
 ## [1.6.2](https://github.com/aliziodev/laravel-product-catalog/compare/v1.6.1...v1.6.2) (2026-10-30)
 
 ### Bug Fixes
