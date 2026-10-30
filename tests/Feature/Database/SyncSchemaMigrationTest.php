@@ -23,8 +23,8 @@ function syncSchemaMigration(): Migration
 function downgradeToOldReleaseSchema(): void
 {
     Schema::table('catalog_brands', fn (Blueprint $table) => $table->renameColumn('logo_path', 'logo_url'));
-    Schema::table('catalog_products', fn (Blueprint $table) => $table->dropIndex('idx_catalog_products_name'));
-    Schema::table('catalog_inventory_items', fn (Blueprint $table) => $table->dropIndex('idx_catalog_inventory_items_policy'));
+    Schema::table('catalog_products', fn (Blueprint $table) => $table->dropIndex(['name']));
+    Schema::table('catalog_inventory_items', fn (Blueprint $table) => $table->dropIndex(['policy']));
     Schema::table('catalog_inventory_movements', fn (Blueprint $table) => $table->dropColumn(['reserved_before', 'reserved_after']));
 }
 
@@ -62,8 +62,8 @@ it('restores the columns and indexes that installs from older releases never rec
 
     expect(Schema::hasColumn('catalog_brands', 'logo_path'))->toBeTrue()
         ->and(Schema::hasColumn('catalog_brands', 'logo_url'))->toBeFalse()
-        ->and(Schema::hasIndex('catalog_products', 'idx_catalog_products_name'))->toBeTrue()
-        ->and(Schema::hasIndex('catalog_inventory_items', 'idx_catalog_inventory_items_policy'))->toBeTrue()
+        ->and(Schema::hasIndex('catalog_products', 'catalog_products_name_index'))->toBeTrue()
+        ->and(Schema::hasIndex('catalog_inventory_items', 'catalog_inventory_items_policy_index'))->toBeTrue()
         ->and(Schema::hasColumn('catalog_inventory_movements', 'reserved_before'))->toBeTrue()
         ->and(Schema::hasColumn('catalog_inventory_movements', 'reserved_after'))->toBeTrue()
         ->and(collect(catalogSchemaSnapshot())->map(fn (array $names) => collect($names)->sort()->values()->all())->all())
