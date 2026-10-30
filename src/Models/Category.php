@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Aliziodev\ProductCatalog\Models;
 
 use Aliziodev\ProductCatalog\Concerns\HasCatalogTable;
+use Aliziodev\ProductCatalog\Concerns\UsesProductModel;
 use Aliziodev\ProductCatalog\Database\Factories\CategoryFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -19,6 +20,7 @@ class Category extends Model
     use HasCatalogTable;
     use HasFactory;
     use SoftDeletes;
+    use UsesProductModel;
 
     protected $fillable = [
         'parent_id',
@@ -57,7 +59,7 @@ class Category extends Model
         $prefix = config('product-catalog.table_prefix', 'catalog_');
 
         return $this->belongsToMany(
-            Product::class,
+            $this->productModel(),
             $prefix.'product_categories',
             'category_id',
             'product_id'

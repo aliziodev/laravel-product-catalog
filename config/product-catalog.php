@@ -10,8 +10,8 @@ return [
     | Product Model
     |--------------------------------------------------------------------------
     | The Eloquent model class used throughout the package — search drivers,
-    | API controller, and any future extension point all resolve through this
-    | single key.
+    | API controller, and the product relations on Brand, Category, Tag,
+    | ProductVariant and ProductOption all resolve through this single key.
     |
     | Override this after extending the base model in your application:
     |

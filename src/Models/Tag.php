@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Aliziodev\ProductCatalog\Models;
 
 use Aliziodev\ProductCatalog\Concerns\HasCatalogTable;
+use Aliziodev\ProductCatalog\Concerns\UsesProductModel;
 use Aliziodev\ProductCatalog\Database\Factories\TagFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -16,6 +17,7 @@ class Tag extends Model
     use HasCatalogTable;
     use HasFactory;
     use SoftDeletes;
+    use UsesProductModel;
 
     protected $fillable = [
         'name',
@@ -37,7 +39,7 @@ class Tag extends Model
         $prefix = config('product-catalog.table_prefix', 'catalog_');
 
         return $this->belongsToMany(
-            Product::class,
+            $this->productModel(),
             $prefix.'product_tags',
             'tag_id',
             'product_id'

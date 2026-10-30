@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Aliziodev\ProductCatalog\Models;
 
 use Aliziodev\ProductCatalog\Concerns\HasCatalogTable;
+use Aliziodev\ProductCatalog\Concerns\UsesProductModel;
 use Aliziodev\ProductCatalog\Database\Factories\ProductVariantFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -18,6 +19,7 @@ class ProductVariant extends Model
 {
     use HasCatalogTable;
     use HasFactory;
+    use UsesProductModel;
 
     protected $fillable = [
         'product_id',
@@ -65,7 +67,7 @@ class ProductVariant extends Model
 
     public function product(): BelongsTo
     {
-        return $this->belongsTo(Product::class);
+        return $this->belongsTo($this->productModel(), 'product_id');
     }
 
     public function optionValues(): BelongsToMany
