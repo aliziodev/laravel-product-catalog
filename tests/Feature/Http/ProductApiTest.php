@@ -248,3 +248,15 @@ it('includes meta when routes.expose_meta is on', function () {
         ->assertJsonPath('data.meta.format', 'paperback')
         ->assertJsonPath('data.variants.0.meta.pages', 320);
 });
+
+it('hides products scheduled for a future published_at from the list and detail', function () {
+    $live = Product::factory()->create(['status' => ProductStatus::Published, 'published_at' => now()->subHour()]);
+    $scheduled = Product::factory()->create(['status' => ProductStatus::Published, 'published_at' => now()->addDay()]);
+
+    $this->getJson('/catalog/products')
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.id', $live->id);
+
+    $this->getJson('/catalog/products/'.$scheduled->slug)->assertNotFound();
+});
