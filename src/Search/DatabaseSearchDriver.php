@@ -142,7 +142,7 @@ class DatabaseSearchDriver implements SearchDriverInterface
                 $q->whereFullText(["{$table}.name", "{$table}.short_description"], $query)
                     ->orWhereHas(
                         'variants',
-                        fn (Builder $v) => $v->where('sku', 'like', "%{$query}%")
+                        fn (Builder $v) => $v->whereLike('sku', "%{$query}%")
                     );
             });
         } else {

@@ -200,13 +200,18 @@ class Product extends Model
         });
     }
 
+    /**
+     * Case-insensitive substring search on name, code, short description and variant SKU.
+     *
+     * whereLike() compiles to ILIKE on PostgreSQL, where plain LIKE is case-sensitive.
+     */
     public function scopeSearch(Builder $query, string $term): void
     {
         $query->where(function (Builder $q) use ($term) {
-            $q->where('name', 'like', "%{$term}%")
-                ->orWhere('code', 'like', "%{$term}%")
-                ->orWhere('short_description', 'like', "%{$term}%")
-                ->orWhereHas('variants', fn (Builder $v) => $v->where('sku', 'like', "%{$term}%"));
+            $q->whereLike('name', "%{$term}%")
+                ->orWhereLike('code', "%{$term}%")
+                ->orWhereLike('short_description', "%{$term}%")
+                ->orWhereHas('variants', fn (Builder $v) => $v->whereLike('sku', "%{$term}%"));
         });
     }
 
