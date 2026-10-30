@@ -29,14 +29,17 @@ jobs:
         with:
           node-version: 'lts/*'
 
+      # Versions are pinned so a new upstream major cannot break releases.
+      # conventional-changelog-conventionalcommits 10+ needs conventional-changelog-writer 9,
+      # but @semantic-release/release-notes-generator 14 still ships writer 8.
       - name: Install semantic-release & plugins
         run: |
           npm install --no-save \
-            semantic-release \
-            @semantic-release/changelog \
-            @semantic-release/git \
-            @semantic-release/github \
-            conventional-changelog-conventionalcommits
+            semantic-release@25.0.9 \
+            @semantic-release/changelog@7.0.0 \
+            @semantic-release/git@11.0.1 \
+            @semantic-release/github@12.0.10 \
+            conventional-changelog-conventionalcommits@9.3.1
 
       - name: Run semantic-release
         env:
