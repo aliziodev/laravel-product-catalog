@@ -120,18 +120,24 @@ $cartItem = [
 
 ## 5. Reserve Stock for an Order
 
-Once the order is confirmed, reserve the quantity so concurrent orders don't oversell:
+Once the order is confirmed, reserve the quantity so concurrent orders don't oversell. Go through the inventory driver: it locks the stock row, checks availability and records a movement.
 
 ```php
-// After order is created
-$variant->inventoryItem->reserve($qty);
+use Aliziodev\ProductCatalog\Facades\ProductCatalog;
 
-// After order is cancelled or payment fails
-$variant->inventoryItem->release($qty);
+$inventory = ProductCatalog::inventory();
 
-// After order ships (actual deduction via inventory provider)
-ProductCatalog::inventory()->adjust($variant, -$qty, 'shipped', $order);
+// After order is created — hold the stock
+$inventory->reserve($variant, $qty, 'order_placed', $order);
+
+// After order is cancelled or payment fails — give the hold back
+$inventory->release($variant, $qty, 'order_cancelled', $order);
+
+// After order ships — turn the hold into a permanent deduction
+$inventory->commit($variant, $qty, 'order_shipped', $order);
 ```
+
+> Earlier versions of this guide reserved with `$variant->inventoryItem->reserve($qty)` and deducted with `adjust()` on shipment. That never released the hold, so `reserved_quantity` kept growing. If you followed it, see [Upgrading](../README.md#upgrading).
 
 ## 6. Low Stock Alert
 
