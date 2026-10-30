@@ -2,6 +2,12 @@
 
 All notable changes to `aliziodev/laravel-product-catalog` will be documented in this file.
 
+## [1.7.1](https://github.com/aliziodev/laravel-product-catalog/compare/v1.7.0...v1.7.1) (2026-10-30)
+
+### Bug Fixes
+
+* **migrations:** include the table prefix in every index name ([b8cd31d](https://github.com/aliziodev/laravel-product-catalog/commit/b8cd31d28b6abeee3b813f827bf2f063cea5c026))
+
 ## [1.7.0](https://github.com/aliziodev/laravel-product-catalog/compare/v1.6.2...v1.7.0) (2026-10-30)
 
 ### Features
