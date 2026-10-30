@@ -6,10 +6,15 @@ namespace Aliziodev\ProductCatalog\Events;
 
 use Aliziodev\ProductCatalog\Models\InventoryMovement;
 use Aliziodev\ProductCatalog\Models\ProductVariant;
+use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class InventoryLowStock
+/**
+ * Dispatched after the surrounding database transaction commits, and dropped
+ * if it rolls back. Without an open transaction it is dispatched immediately.
+ */
+class InventoryLowStock implements ShouldDispatchAfterCommit
 {
     use Dispatchable;
     use SerializesModels;

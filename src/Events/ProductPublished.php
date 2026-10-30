@@ -5,10 +5,15 @@ declare(strict_types=1);
 namespace Aliziodev\ProductCatalog\Events;
 
 use Aliziodev\ProductCatalog\Models\Product;
+use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class ProductPublished
+/**
+ * Dispatched after the surrounding database transaction commits, and dropped
+ * if it rolls back. Without an open transaction it is dispatched immediately.
+ */
+class ProductPublished implements ShouldDispatchAfterCommit
 {
     use Dispatchable;
     use SerializesModels;
