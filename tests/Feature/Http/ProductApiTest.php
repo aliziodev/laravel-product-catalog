@@ -36,6 +36,20 @@ it('does not return archived products', function () {
         ->assertJsonCount(1, 'data');
 });
 
+it('ignores the status query parameter', function (ProductStatus $status) {
+    $published = Product::factory()->create(['status' => ProductStatus::Published, 'slug' => 'pub', 'published_at' => now()]);
+    Product::factory()->create(['status' => $status, 'slug' => 'hidden']);
+
+    $this->getJson('/catalog/products?status='.$status->value)
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.id', $published->id);
+})->with([
+    'draft' => [ProductStatus::Draft],
+    'private' => [ProductStatus::Private],
+    'archived' => [ProductStatus::Archived],
+]);
+
 it('filters products by brand', function () {
     $brand = Brand::factory()->create();
     Product::factory()->create(['status' => ProductStatus::Published, 'slug' => 'branded', 'brand_id' => $brand->id, 'published_at' => now()]);

@@ -87,7 +87,10 @@ class ProductSearchBuilder
      *   type            → "simple" | "variable"
      *   sort_by         → "price" | "name" | "newest" | "oldest"
      *   sort_direction  → "asc" | "desc"
-     *   status          → overrides default "published" filter
+     *
+     * A `status` parameter is deliberately ignored: results stay limited to
+     * published products so a public endpoint cannot list drafts, private or
+     * archived products. Admin screens should call ->withStatus() explicitly.
      */
     public static function fromRequest(Request $request): static
     {
@@ -132,10 +135,6 @@ class ProductSearchBuilder
 
         if ($request->input('sort_direction') === 'asc') {
             $instance->sortAscending();
-        }
-
-        if ($request->filled('status')) {
-            $instance->withStatus($request->input('status'));
         }
 
         return $instance;
