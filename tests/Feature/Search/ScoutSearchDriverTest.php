@@ -184,3 +184,68 @@ it('get() delegates to the scout builder and skips applySort() when no explicit 
         ['status' => 'published'],
     ])->and($filterDriver->sortCallCount)->toBe(0);
 });
+
+// ── resolving the configured search model ─────────────────────────────────────
+
+/**
+ * Stands in for an app model that uses Laravel\Scout\Searchable: the driver
+ * only needs its static search() entry point.
+ */
+class ScoutEntryPointProduct extends Product
+{
+    public static ?string $lastQuery = null;
+
+    public static ?FakeScoutBuilder $fakeBuilder = null;
+
+    public static function search(string $query = ''): FakeScoutBuilder
+    {
+        static::$lastQuery = $query;
+
+        return static::$fakeBuilder;
+    }
+}
+
+/**
+ * A ScoutSearchDriver that skips the laravel/scout install check but keeps the
+ * real makeScoutBuilder() and searchableModelClass().
+ */
+function scoutDriverWithoutInstallCheck(): ScoutSearchDriver
+{
+    return new class(app(DatabaseSearchDriver::class)) extends ScoutSearchDriver
+    {
+        protected function scoutIsInstalled(): bool
+        {
+            return true;
+        }
+    };
+}
+
+it('starts the Scout query from the configured product model', function () {
+    $paginator = new LengthAwarePaginator([], 0, 15, 1);
+    ScoutEntryPointProduct::$lastQuery = null;
+    ScoutEntryPointProduct::$fakeBuilder = new FakeScoutBuilder($paginator, new EloquentCollection);
+    config(['product-catalog.model' => ScoutEntryPointProduct::class]);
+
+    $result = scoutDriverWithoutInstallCheck()->paginate('kemeja', [], 15, 1);
+
+    expect($result)->toBe($paginator)
+        ->and(ScoutEntryPointProduct::$lastQuery)->toBe('kemeja');
+});
+
+it('rejects a configured model that is not an existing class name', function (mixed $model) {
+    config(['product-catalog.model' => $model]);
+
+    expect(fn () => scoutDriverWithoutInstallCheck()->paginate('kemeja', [], 15, 1))
+        ->toThrow(RuntimeException::class, 'ScoutSearchDriver search model is not configured correctly.');
+})->with([
+    'empty string' => [''],
+    'not a string' => [123],
+    'unknown class' => ['App\\Models\\MissingProduct'],
+]);
+
+it('rejects a configured model without the Scout search() entry point', function () {
+    config(['product-catalog.model' => Product::class]);
+
+    expect(fn () => scoutDriverWithoutInstallCheck()->get('kemeja', []))
+        ->toThrow(RuntimeException::class, 'requires the configured search model to use Laravel\Scout\Searchable');
+});
