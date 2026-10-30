@@ -127,11 +127,16 @@ return [
     |--------------------------------------------------------------------------
     | Set enabled to true to register the read-only catalog API routes.
     | Customize prefix and middleware to fit your application.
+    |
+    | expose_meta : include the product and variant `meta` JSON in API
+    |               responses. Off by default because `meta` often holds
+    |               internal data (supplier codes, reorder points, notes).
     */
     'routes' => [
         'enabled' => env('PRODUCT_CATALOG_ROUTES_ENABLED', false),
         'prefix' => env('PRODUCT_CATALOG_ROUTES_PREFIX', 'catalog'),
         'middleware' => ['api'],
+        'expose_meta' => env('PRODUCT_CATALOG_ROUTES_EXPOSE_META', false),
     ],
 
 ];

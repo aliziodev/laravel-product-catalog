@@ -23,7 +23,7 @@ class ProductResource extends JsonResource
             'featured_image_path' => $this->featured_image_path,
             'meta_title' => $this->meta_title,
             'meta_description' => $this->meta_description,
-            'meta' => $this->meta,
+            'meta' => $this->when((bool) config('product-catalog.routes.expose_meta', false), $this->meta),
             'published_at' => $this->published_at?->toISOString(),
             'brand' => BrandResource::make($this->whenLoaded('brand')),
             'primary_category' => CategoryResource::make($this->whenLoaded('primaryCategory')),

@@ -11,13 +11,13 @@ use Illuminate\Http\Request;
 it('resource contains all expected keys', function () {
     $variant = ProductVariant::factory()->create();
 
-    $data = ProductVariantResource::make($variant)->toArray(new Request);
+    $data = ProductVariantResource::make($variant)->resolve(new Request);
 
     expect($data)->toHaveKeys([
         'id', 'sku', 'price', 'compare_price',
         'is_default', 'is_active', 'is_on_sale', 'discount_percentage',
         'weight', 'length', 'width', 'height',
-        'position', 'meta',
+        'position',
     ]);
 });
 
@@ -107,18 +107,29 @@ it('dimensions are returned as float when set', function () {
 
 // --- meta ---
 
-it('meta is null when not set', function () {
-    $variant = ProductVariant::factory()->create(['meta' => null]);
+it('leaves meta out by default', function () {
+    $variant = ProductVariant::factory()->create(['meta' => ['supplier_code' => 'SUP-001']]);
 
-    $data = ProductVariantResource::make($variant)->toArray(new Request);
+    $data = ProductVariantResource::make($variant)->resolve(new Request);
 
-    expect($data['meta'])->toBeNull();
+    expect($data)->not->toHaveKey('meta');
 });
 
-it('meta is returned as array when set', function () {
+it('meta is null when not set and routes.expose_meta is on', function () {
+    config(['product-catalog.routes.expose_meta' => true]);
+    $variant = ProductVariant::factory()->create(['meta' => null]);
+
+    $data = ProductVariantResource::make($variant)->resolve(new Request);
+
+    expect($data)->toHaveKey('meta')
+        ->and($data['meta'])->toBeNull();
+});
+
+it('meta is returned as array when routes.expose_meta is on', function () {
+    config(['product-catalog.routes.expose_meta' => true]);
     $variant = ProductVariant::factory()->create(['meta' => ['barcode' => '123456']]);
 
-    $data = ProductVariantResource::make($variant)->toArray(new Request);
+    $data = ProductVariantResource::make($variant)->resolve(new Request);
 
     expect($data['meta'])->toBe(['barcode' => '123456']);
 });

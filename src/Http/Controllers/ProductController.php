@@ -34,7 +34,14 @@ class ProductController extends Controller
         $modelClass = config('product-catalog.model', Product::class);
 
         $product = $modelClass::published()
-            ->with(['brand', 'primaryCategory', 'tags', 'variants.inventoryItem', 'options.values'])
+            ->with([
+                'brand',
+                'primaryCategory',
+                'tags',
+                // Inactive variants are switched off for sale, so they stay out of the public API.
+                'variants' => fn ($query) => $query->active()->with('inventoryItem'),
+                'options.values',
+            ])
             ->bySlug($slug)
             ->firstOrFail();
 
