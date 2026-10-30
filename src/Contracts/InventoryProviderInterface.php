@@ -67,7 +67,7 @@ interface InventoryProviderInterface
      *
      * @param  Model|null  $reference  Optional source model (Order, Cart, etc.)
      *
-     * @throws InventoryException when available stock < quantity
+     * @throws InventoryException when quantity < 1 or available stock < quantity
      */
     public function reserve(
         ProductVariant $variant,
@@ -84,6 +84,8 @@ interface InventoryProviderInterface
      * Only applies to Track policy; no-op otherwise.
      *
      * @param  Model|null  $reference  Optional source model
+     *
+     * @throws InventoryException when quantity < 1
      */
     public function release(
         ProductVariant $variant,
@@ -101,7 +103,8 @@ interface InventoryProviderInterface
      *
      * @param  Model|null  $reference  Optional source model
      *
-     * @throws InventoryException when reserved_quantity < quantity
+     * @throws InventoryException when quantity < 1, reserved_quantity < quantity,
+     *                            or the deduction would make total quantity negative
      */
     public function commit(
         ProductVariant $variant,
